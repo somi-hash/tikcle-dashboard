@@ -10,6 +10,47 @@
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
   * { margin:0; padding:0; box-sizing:border-box; }
   body { background:#0f172a; color:#e2e8f0; font-family:'Inter',sans-serif; padding:24px 32px; min-height:100vh; }
+  /* ─── Password Lock Screen ─── */
+  #lockScreen {
+    position:fixed; inset:0; z-index:9999;
+    background:#0f172a;
+    display:flex; align-items:center; justify-content:center;
+    transition: opacity 0.4s ease;
+  }
+  #lockScreen.fade-out { opacity:0; pointer-events:none; }
+  .lock-box {
+    background:#1e293b; border:1px solid #334155; border-radius:16px;
+    padding:40px 36px; width:360px; text-align:center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .lock-box .lock-icon { font-size:40px; margin-bottom:16px; }
+  .lock-box h2 { font-size:20px; font-weight:700; color:#f8fafc; margin-bottom:6px; }
+  .lock-box p { font-size:13px; color:#64748b; margin-bottom:24px; }
+  .lock-box input {
+    width:100%; padding:12px 16px; border-radius:10px;
+    border:1px solid #334155; background:#0f172a; color:#e2e8f0;
+    font-size:15px; text-align:center; letter-spacing:2px;
+    outline:none; transition: border-color 0.2s;
+  }
+  .lock-box input:focus { border-color:#6366f1; }
+  .lock-box input.shake {
+    animation: shake 0.4s ease;
+    border-color:#ef4444;
+  }
+  .lock-box button {
+    margin-top:16px; width:100%; padding:12px;
+    border:none; border-radius:10px; cursor:pointer;
+    background:linear-gradient(135deg,#6366f1,#818cf8);
+    color:#fff; font-size:14px; font-weight:600;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .lock-box button:hover { transform:translateY(-1px); box-shadow:0 4px 20px rgba(99,102,241,0.4); }
+  .lock-box .error-msg { color:#f87171; font-size:12px; margin-top:10px; min-height:18px; }
+  @keyframes shake {
+    0%,100% { transform:translateX(0); }
+    20%,60% { transform:translateX(-8px); }
+    40%,80% { transform:translateX(8px); }
+  }
   .header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:12px; }
   .header h1 { font-size:26px; font-weight:700; color:#f8fafc; }
   .header p { color:#64748b; font-size:13px; margin-top:4px; }
@@ -122,9 +163,49 @@
 </style>
 </head>
 <body>
-<div id="app">
+<!-- Password Lock Screen -->
+<div id="lockScreen">
+  <div class="lock-box">
+    <div class="lock-icon">🔒</div>
+    <h2>TikCle Dashboard</h2>
+    <p>접근하려면 비밀번호를 입력하세요</p>
+    <input type="password" id="pwInput" placeholder="비밀번호" autocomplete="off"
+      onkeydown="if(event.key==='Enter')unlockDashboard()">
+    <button onclick="unlockDashboard()">확인</button>
+    <div class="error-msg" id="pwError"></div>
+  </div>
+</div>
+<div id="app" style="display:none">
   <div style="text-align:center;padding:60px;color:#64748b;font-size:16px;">데이터를 로드하는 중...</div>
 </div>
+<script>
+// ─── Password Protection ───
+const _PW_HASH = '879a05d8';
+function simpleHash(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) { h = ((h << 5) - h + s.charCodeAt(i)) | 0; }
+  return (h >>> 0).toString(16).slice(0, 8);
+}
+function unlockDashboard() {
+  const input = document.getElementById('pwInput').value;
+  if (simpleHash(input) === _PW_HASH) {
+    sessionStorage.setItem('tkcle_auth', '1');
+    document.getElementById('lockScreen').classList.add('fade-out');
+    document.getElementById('app').style.display = '';
+    setTimeout(() => { document.getElementById('lockScreen').remove(); }, 500);
+    if (typeof loadData === 'function') loadData(true).then(()=>{if(typeof updateDebugPanel==='function')updateDebugPanel();if(typeof updateJsonLinks==='function')updateJsonLinks();});
+  } else {
+    document.getElementById('pwInput').classList.add('shake');
+    document.getElementById('pwError').textContent = '비밀번호가 올바르지 않습니다';
+    setTimeout(() => { document.getElementById('pwInput').classList.remove('shake'); }, 400);
+  }
+}
+// Auto-unlock if already authenticated this session
+if (sessionStorage.getItem('tkcle_auth') === '1') {
+  document.getElementById('lockScreen').remove();
+  document.getElementById('app').style.display = '';
+}
+</script>
 <script>
 // ─── GOOGLE SHEETS CONFIG ────────────────────────────────────────
 const DEFAULT_SHEETS_ID = '1MbxoehGgkveDwle7gFWfPlCl1XlHVmzqEw8HtOOkIm8';
@@ -1331,10 +1412,36 @@ function renderCumChart(canvas, monthly, target, months) {
     const idx = ctx.p1DataIndex;
     return isFutureMonth(monthly[idx]?.ym) ? 'rgba(99,102,241,0.4)' : '#6366f1';
   };
+  const cumTargets = monthly.map((_,i) => (target/months)*(i+1));
+  const cumGPs = monthly.map(m => m.cumGP);
   cumChart = new Chart(canvas, { type:'line', data: { labels: monthly.map(m=>m.ym), datasets: [
-    { label:'누적 매출총이익', data:monthly.map(m=>m.cumGP), borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,0.15)', fill:true, tension:0.3, pointRadius:4, pointBackgroundColor:cumPointColors, borderWidth:2.5, segment: { borderDash: cumSegmentStyle, borderColor: cumSegmentColor } },
-    { label:'목표 라인', data:monthly.map((_,i)=>(target/months)*(i+1)), borderColor:'#f59e0b', borderDash:[6,4], pointRadius:0, borderWidth:1.5, fill:false }
-  ]}, options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmtW(c.raw)}}}, scales:{x:{ticks:{color: monthly.map(m=>isFutureMonth(m.ym)?'rgba(148,163,184,0.4)':'#94a3b8')}}, y:{ticks:{callback:v=>fmt(v)}}} } });
+    { label:'누적 매출총이익', data:cumGPs, borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,0.15)', fill:true, tension:0.3, pointRadius:4, pointBackgroundColor:cumPointColors, borderWidth:2.5, segment: { borderDash: cumSegmentStyle, borderColor: cumSegmentColor } },
+    { label:'목표 라인', data:cumTargets, borderColor:'#f59e0b', borderDash:[6,4], pointRadius:0, borderWidth:1.5, fill:false }
+  ]}, options: { responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{legend:{position:'bottom'},tooltip:{
+    callbacks:{
+      title: (items) => items[0]?.label || '',
+      label: () => null,
+      afterBody: (items) => {
+        const idx = items[0]?.dataIndex;
+        if (idx === undefined) return [];
+        const cumGP = cumGPs[idx] || 0;
+        const tgt = cumTargets[idx] || 0;
+        const achRate = tgt !== 0 ? (cumGP / tgt * 100) : 0;
+        const prevAch = idx > 0 && cumTargets[idx-1] !== 0 ? (cumGPs[idx-1] / cumTargets[idx-1] * 100) : null;
+        const momPp = prevAch !== null ? achRate - prevAch : null;
+        const lines = [
+          '  누적 매출총이익:  ' + fmtW(cumGP),
+          '  목표 누적:  ' + fmtW(Math.round(tgt)),
+          '  달성률:  ' + achRate.toFixed(1) + '%',
+        ];
+        if (momPp !== null) {
+          const sign = momPp >= 0 ? '+' : '';
+          lines.push('  전월 대비:  ' + sign + momPp.toFixed(1) + '%p');
+        }
+        return lines;
+      }
+    }
+  }}, scales:{x:{ticks:{color: monthly.map(m=>isFutureMonth(m.ym)?'rgba(148,163,184,0.4)':'#94a3b8')}}, y:{ticks:{callback:v=>fmt(v)}}} } });
 }
 function renderGPBar(canvas, waterfall, onClickBar) {
   if(gpBarChart) gpBarChart.destroy();
@@ -1740,10 +1847,10 @@ function render() {
                   const bg = c.isNew ? 'background:rgba(16,185,129,0.08);' : '';
                   const nameColor = c.isNew ? '#6ee7b7' : '#f8fafc';
                   const tag = c.isNew ? ' <span style="color:#10b981;font-size:10px;font-weight:600">NEW</span>' : '';
-                  return '<tr style="border-bottom:1px solid #1e293b44;'+bg+'"><td style="padding:6px 0;color:'+nameColor+';font-weight:500">'+c.name+tag+'</td><td style="padding:6px 4px;color:#94a3b8">'+c.brand+'</td><td style="padding:4px 4px">'+renderProdTags(c.name,c.brand,c.squad,am?.year||'',am?.month||0)+'</td><td style="padding:6px 0;text-align:right;color:'+(c.gp>=0?'#818cf8':'#f87171')+';font-weight:600;white-space:nowrap">'+fmt(c.gp)+'</td></tr>';
+                  return '<tr style="border-bottom:1px solid #1e293b44;'+bg+'"><td style="padding:6px 0;color:'+nameColor+';font-weight:500">'+c.name+tag+'</td><td style="padding:6px 4px;color:#94a3b8">'+c.brand+'</td><td style="padding:6px 0;text-align:right;color:'+(c.gp>=0?'#818cf8':'#f87171')+';font-weight:600;white-space:nowrap">'+fmt(c.gp)+'</td></tr>';
                 }).join('')+
                 (csm.endedList.length>0 ?
-                  csm.endedList.map(c=>'<tr style="border-bottom:1px solid #1e293b44;background:rgba(239,68,68,0.08)"><td style="padding:6px 0;color:#fca5a5;font-weight:500">'+c.name+' <span style="color:#ef4444;font-size:10px;font-weight:600">OUT</span></td><td style="padding:6px 4px;color:#94a3b8">'+c.brand+'</td><td></td><td style="padding:6px 0;text-align:right;color:#f87171;font-weight:600;white-space:nowrap">-'+fmt(Math.abs(c.gp))+'</td></tr>').join('') : '')+
+                  csm.endedList.map(c=>'<tr style="border-bottom:1px solid #1e293b44;background:rgba(239,68,68,0.08)"><td style="padding:6px 0;color:#fca5a5;font-weight:500">'+c.name+' <span style="color:#ef4444;font-size:10px;font-weight:600">OUT</span></td><td style="padding:6px 4px;color:#94a3b8">'+c.brand+'</td><td style="padding:6px 0;text-align:right;color:#f87171;font-weight:600;white-space:nowrap">-'+fmt(Math.abs(c.gp))+'</td></tr>').join('') : '')+
                 '</table></div></div>';
           }).join('')}
         </div>
@@ -1827,14 +1934,9 @@ function render() {
         <!-- 상품 데이터 있을 때 차트 -->
         <div id="prod-charts-content" style="display:${pa.hasProds?'block':'none'}">
         <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:2px">${prodLegendHTML}</div>
-        <div class="prod-sub-nav">
-          <button class="prod-sub-btn ${currentProdSub==='count'?'active':''}" onclick="setProdSub('count')">6-1. 운영 개수 & 비중</button>
-          <button class="prod-sub-btn ${currentProdSub==='gp'?'active':''}" onclick="setProdSub('gp')">6-2. 매출총이익 & 비중</button>
-          <button class="prod-sub-btn ${currentProdSub==='trend'?'active':''}" onclick="setProdSub('trend')">6-3. 트렌드 & 인사이트</button>
-        </div>
         <!-- 6-1 Count -->
-        <div class="prod-sub-content ${currentProdSub==='count'?'active':''}" id="prodSub-count">
-          <h2 style="font-size:15px;margin-bottom:12px">운영 건수 비중</h2>
+        <div style="margin-bottom:28px">
+          <h2 style="font-size:15px;margin-bottom:12px">📊 운영 건수 비중</h2>
           <p class="sub">현재 월(${am?.ym||''}) 기준 도넛 차트 + 월별 구성 변화 스택 막대</p>
           <div class="prod-section-grid">
             <div style="height:240px;position:relative">
@@ -1847,9 +1949,10 @@ function render() {
             <div style="height:240px"><canvas id="prodStackCount"></canvas></div>
           </div>
         </div>
+        <div style="border-top:1px solid #1e293b;margin-bottom:28px"></div>
         <!-- 6-2 GP -->
-        <div class="prod-sub-content ${currentProdSub==='gp'?'active':''}" id="prodSub-gp">
-          <h2 style="font-size:15px;margin-bottom:12px">매출총이익 비중</h2>
+        <div style="margin-bottom:28px">
+          <h2 style="font-size:15px;margin-bottom:12px">💰 매출총이익 비중</h2>
           <p class="sub">현재 월(${am?.ym||''}) 기준 GP 도넛 + 월별 GP 구성 스택 막대 · 건수 비중과 비교하면 고수익 상품을 파악할 수 있습니다</p>
           <div class="prod-section-grid">
             <div style="height:240px;position:relative">
@@ -1862,9 +1965,10 @@ function render() {
             <div style="height:240px"><canvas id="prodStackGP"></canvas></div>
           </div>
         </div>
+        <div style="border-top:1px solid #1e293b;margin-bottom:28px"></div>
         <!-- 6-3 Trend -->
-        <div class="prod-sub-content ${currentProdSub==='trend'?'active':''}" id="prodSub-trend">
-          <h2 style="font-size:15px;margin-bottom:12px">상품별 트렌드 & 인사이트</h2>
+        <div style="margin-bottom:12px">
+          <h2 style="font-size:15px;margin-bottom:12px">📈 상품별 트렌드 & 인사이트</h2>
           <p class="sub">범례 클릭으로 특정 상품을 on/off 할 수 있습니다</p>
           <div style="height:320px"><canvas id="prodTrendLine"></canvas></div>
           ${insightHTML ? '<div class="insight-grid">'+insightHTML+'</div>' : '<div style="text-align:center;color:#64748b;font-size:13px;padding:20px">인사이트를 생성하려면 2개월 이상의 데이터가 필요합니다</div>'}
@@ -2029,7 +2133,10 @@ function updateJsonLinks() {
   const cfGid = localStorage.getItem('tkcle_cashflow_gid') || '0';
   if (cfLink) cfLink.href = 'https://docs.google.com/spreadsheets/d/'+sheetId+'/gviz/tq?gid='+cfGid;
 }
-loadData(true).then(()=>{updateDebugPanel();updateJsonLinks();});
+// Only auto-load if already authenticated (session persists on refresh)
+if (sessionStorage.getItem('tkcle_auth') === '1') {
+  loadData(true).then(()=>{updateDebugPanel();updateJsonLinks();});
+}
 </script>
 </body>
 </html>
