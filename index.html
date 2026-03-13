@@ -60,24 +60,29 @@
   .year-btn { padding:6px 16px; border-radius:8px; border:1px solid #334155; background:#1e293b; color:#94a3b8; cursor:pointer; font-size:13px; font-weight:500; transition:all .2s; }
   .year-btn:hover { border-color:#6366f1; color:#c7d2fe; }
   .year-btn.active { border-color:#6366f1; background:#4f46e5; color:#fff; }
+  
   .tab-nav { display:flex; gap:4px; margin-bottom:20px; background:#1e293b; border-radius:12px; padding:4px; border:1px solid #334155; }
   .tab-btn { padding:8px 20px; border-radius:8px; border:none; background:transparent; color:#94a3b8; cursor:pointer; font-size:13px; font-weight:500; transition:all .2s; white-space:nowrap; }
   .tab-btn:hover { color:#c7d2fe; background:#334155; }
   .tab-btn.active { background:#4f46e5; color:#fff; }
   .tab-content { display:none; }
   .tab-content.active { display:block; }
+  
   .card { background:#1e293b; border-radius:16px; padding:24px; margin-bottom:20px; border:1px solid #334155; }
   .card h2 { font-size:17px; font-weight:600; color:#f8fafc; margin-bottom:16px; }
   .card .sub { color:#64748b; font-size:12px; margin-top:-12px; margin-bottom:16px; }
+  
   .grid2 { display:grid; grid-template-columns:300px 1fr; gap:24px; align-items:start; }
   .stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
   .stat-box { background:#0f172a; border-radius:10px; padding:12px 14px; text-align:center; }
   .stat-box .label { color:#64748b; font-size:11px; }
   .stat-box .value { font-size:18px; font-weight:700; margin-top:4px; }
+  
   .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
   .kpi { background:#0f172a; border-radius:10px; padding:14px 16px; border-left:3px solid; }
   .kpi .label { color:#64748b; font-size:11px; }
   .kpi .value { font-size:20px; font-weight:700; margin-top:4px; }
+  
   table { width:100%; border-collapse:collapse; font-size:13px; }
   thead tr { border-bottom:1px solid #334155; }
   th { padding:10px 12px; text-align:left; color:#64748b; font-weight:500; font-size:11px; text-transform:uppercase; }
@@ -85,31 +90,420 @@
   tbody tr { border-bottom:1px solid #1e293b44; transition:background .15s; }
   tbody tr:hover { background:#0f172a88; }
   tbody tr.new-row { background:#0f172a; }
+  
   .badge { border-radius:12px; padding:2px 10px; font-size:11px; font-weight:600; display:inline-block; }
   .badge-new { background:#065f46; color:#6ee7b7; border:1px solid #059669; }
   .badge-cont { background:#1e3a5f; color:#7dd3fc; border:1px solid #0284c7; }
   .badge-end { background:#7f1d1d; color:#fca5a5; border:1px solid #dc2626; }
+  
   .ended-panel { background:#1a0000; border-radius:10px; padding:16px; border:1px solid #7f1d1d; margin-top:16px; }
   .ended-panel h3 { font-size:14px; font-weight:600; color:#fca5a5; margin-bottom:10px; }
   .ended-tags { display:flex; flex-wrap:wrap; gap:8px; }
   .ended-tag { background:#7f1d1d33; border-radius:8px; padding:8px 14px; border:1px solid #7f1d1d; font-size:12px; }
+  
   .month-select { background:#0f172a; color:#e2e8f0; border:1px solid #334155; border-radius:8px; padding:6px 12px; font-size:13px; cursor:pointer; }
   .up { color:#4ade80; font-weight:500; }
   .down { color:#f87171; font-weight:500; }
   .footer { color:#475569; font-size:11px; text-align:center; margin-top:20px; padding:12px; }
   canvas { max-height:280px; }
+  
   .chart-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
 
-  /* ─── CSM TAB 너비 수정 ─── */
-  .csm-grid { 
-    display:grid; 
-    grid-template-columns: 1fr; /* 100% 너비 */
-    gap:16px; 
-    margin-bottom:20px; 
-  }
+  /* ─── CSM TAB Styles (Modified) ─── */
+  .csm-grid { display:grid; grid-template-columns: 1fr; gap:16px; margin-bottom:20px; }
   .csm-card { background:#0f172a; border-radius:12px; padding:24px; border:1px solid #334155; cursor:pointer; transition:all .2s; }
   .csm-card:hover { border-color:#6366f1; transform:translateY(-2px); }
-  .csm-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+  .csm-card.expanded { border-color:#6366f1; }
+  .csm-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; }
   .csm-card .csm-name { font-size:18px; font-weight:700; color:#f8fafc; }
-  .csm-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:8px; }
-  .csm-stat { font-size:11px; color:#64748b; background:#1e293b44; padding:10px; border-radius:8
+  .csm-stats { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:8px; }
+  .csm-stat { font-size:11px; color:#64748b; }
+  .csm-stat span { font-size:16px; font-weight:600; display:block; margin-top:2px; }
+  .csm-clients { margin-top:12px; border-top:1px solid #334155; padding-top:12px; display:none; }
+  .csm-clients.show { display:block; }
+  
+  @media (max-width:768px) {
+    .csm-stats { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  .heatmap-wrap { overflow-x:auto; }
+  .heatmap-table { border-collapse:collapse; font-size:11px; width:100%; }
+  .heatmap-table th, .heatmap-table td { padding:6px 10px; text-align:center; white-space:nowrap; }
+  .heatmap-table th { color:#64748b; font-weight:500; position:sticky; top:0; background:#1e293b; }
+  .heatmap-table th:first-child, .heatmap-table td:first-child { text-align:left; position:sticky; left:0; background:#1e293b; z-index:1; min-width:140px; }
+  .heatmap-cell { border-radius:4px; padding:4px 8px; cursor:pointer; transition:transform .15s; display:inline-block; min-width:60px; }
+  .heatmap-cell:hover { transform:scale(1.1); }
+  .hm-total { font-weight:600; color:#818cf8; }
+  
+  .prod-tags { display:flex; flex-wrap:wrap; gap:3px; }
+  .prod-tag { background:#1e1b4b; border:1px solid #4338ca; color:#a5b4fc; border-radius:6px; padding:1px 7px; font-size:10px; font-weight:500; cursor:default; position:relative; white-space:nowrap; }
+  .prod-tag:hover .prod-tip { display:block; }
+  .prod-tip { display:none; position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%); background:#1e293b; border:1px solid #475569; border-radius:8px; padding:8px 12px; font-size:11px; color:#e2e8f0; white-space:nowrap; z-index:100; box-shadow:0 4px 12px rgba(0,0,0,.4); min-width:120px; }
+  .prod-tip::after { content:''; position:absolute; top:100%; left:50%; transform:translateX(-50%); border:5px solid transparent; border-top-color:#475569; }
+  
+  .data-status { display:flex; align-items:center; gap:8px; font-size:11px; color:#64748b; }
+  .data-status .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .data-status .dot.live { background:#4ade80; }
+  .data-status .dot.fallback { background:#f59e0b; }
+  .data-status .dot.error { background:#f87171; }
+  .data-status .dot.loading { background:#818cf8; animation:pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  
+  .refresh-btn { padding:4px 12px; border-radius:6px; border:1px solid #334155; background:#1e293b; color:#94a3b8; cursor:pointer; font-size:11px; transition:all .2s; display:flex; align-items:center; gap:4px; }
+  .refresh-btn:hover { border-color:#6366f1; color:#c7d2fe; }
+  .config-banner { background:#1e1b4b; border:1px solid #4f46e5; border-radius:10px; padding:14px 20px; margin-bottom:16px; font-size:13px; color:#c7d2fe; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .config-banner input { flex:1; min-width:300px; background:#0f172a; border:1px solid #334155; border-radius:6px; padding:6px 12px; color:#e2e8f0; font-size:12px; font-family:monospace; }
+  .config-banner button { padding:6px 16px; border-radius:6px; border:none; background:#4f46e5; color:#fff; cursor:pointer; font-size:12px; font-weight:500; }
+  
+  .prod-section-grid { display:grid; grid-template-columns:280px 1fr; gap:20px; align-items:start; }
+  .insight-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; margin-top:16px; }
+  .insight-card { background:#0f172a; border-radius:10px; padding:14px 16px; border-left:3px solid; }
+  .insight-card .ic-label { color:#64748b; font-size:11px; margin-bottom:4px; }
+  .insight-card .ic-name { font-size:15px; font-weight:600; color:#f8fafc; }
+  .insight-card .ic-val { font-size:12px; margin-top:4px; }
+
+  @media (max-width:900px) {
+    .grid2 { grid-template-columns:1fr; }
+    .chart-row { grid-template-columns:1fr; }
+    .kpi-grid { grid-template-columns:repeat(2,1fr); }
+    .tab-nav { overflow-x:auto; }
+    .prod-section-grid { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div id="lockScreen">
+  <div class="lock-box">
+    <div class="lock-icon">🔒</div>
+    <h2>TikCle Dashboard</h2>
+    <p>접근하려면 비밀번호를 입력하세요</p>
+    <input type="password" id="pwInput" placeholder="비밀번호" autocomplete="off"
+      onkeydown="if(event.key==='Enter')unlockDashboard()">
+    <button onclick="unlockDashboard()">확인</button>
+    <div class="error-msg" id="pwError"></div>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+  <div style="text-align:center;padding:60px;color:#64748b;font-size:16px;">데이터를 로드하는 중...</div>
+</div>
+
+<script>
+// ─── Password Protection ───
+const _PW_HASH = '879a05d8';
+function simpleHash(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) { h = ((h << 5) - h + s.charCodeAt(i)) | 0; }
+  return (h >>> 0).toString(16).slice(0, 8);
+}
+function unlockDashboard() {
+  const input = document.getElementById('pwInput').value;
+  if (simpleHash(input) === _PW_HASH) {
+    sessionStorage.setItem('tkcle_auth', '1');
+    document.getElementById('lockScreen').classList.add('fade-out');
+    document.getElementById('app').style.display = '';
+    setTimeout(() => { document.getElementById('lockScreen').remove(); }, 500);
+    if (typeof loadData === 'function') loadData(true).then(()=>{if(typeof updateDebugPanel==='function')updateDebugPanel();if(typeof updateJsonLinks==='function')updateJsonLinks();});
+  } else {
+    document.getElementById('pwInput').classList.add('shake');
+    document.getElementById('pwError').textContent = '비밀번호가 올바르지 않습니다';
+    setTimeout(() => { document.getElementById('pwInput').classList.remove('shake'); }, 400);
+  }
+}
+if (sessionStorage.getItem('tkcle_auth') === '1') {
+  document.getElementById('lockScreen').remove();
+  document.getElementById('app').style.display = '';
+}
+</script>
+
+<script>
+// ─── GOOGLE SHEETS CONFIG ────────────────────────────────────────
+const DEFAULT_SHEETS_ID = '1MbxoehGgkveDwle7gFWfPlCl1XlHVmzqEw8HtOOkIm8';
+const DEFAULT_MAIN_GID = 1397695984; 
+let SHEETS_ID = localStorage.getItem('tkcle_sheets_id') || DEFAULT_SHEETS_ID;
+let MAIN_GID = parseInt(localStorage.getItem('tkcle_main_gid')) || DEFAULT_MAIN_GID;
+let GAS_URL = localStorage.getItem('tkcle_gas_url') || '';
+let dataSource = 'fallback';
+let lastUpdateTime = null;
+let isLoading = false;
+let PRODUCT_MAP = {};
+
+let _pendingJsonpCb = null;
+window.google = window.google || {};
+window.google.visualization = window.google.visualization || {};
+window.google.visualization.Query = window.google.visualization.Query || {};
+window.google.visualization.Query.setResponse = function(response) {
+  if (_pendingJsonpCb && typeof window[_pendingJsonpCb] === 'function') {
+    window[_pendingJsonpCb](response);
+  }
+};
+
+const PROD_COLORS = ['#6366f1','#22d3ee','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316','#06b6d4'];
+function getProdColor(i) { return PROD_COLORS[i % PROD_COLORS.length]; }
+function getProducts(client, brand, squad, year, month) {
+  const key = client+'|'+brand+'|'+squad+'|'+String(year).replace(/['"]/g,'').trim()+'|'+parseInt(month);
+  return PRODUCT_MAP[key] || [];
+}
+function renderProdTags(client, brand, squad, year, month) {
+  const prods = getProducts(client, brand, squad, year, month);
+  if (prods.length === 0) return '';
+  return '<div class="prod-tags">' + prods.map(p =>
+    '<span class="prod-tag">' + p.name +
+    '<div class="prod-tip"><div style="font-weight:600;margin-bottom:4px;color:#c7d2fe;border-bottom:1px solid #334155;padding-bottom:3px">' + p.name + '</div>' +
+    '<div style="display:flex;justify-content:space-between;gap:16px"><span>GP</span><span>' + (p.gp>=0?'':'-') + Math.round(Math.abs(p.gp)).toLocaleString() + '원</span></div>' +
+    '</div></span>'
+  ).join('') + '</div>';
+}
+
+const FALLBACK_RAW = [["25년 03월","테스트고객","브랜드","홍길동","25",3,10000000,7000000,3000000]];
+let RAW = [...FALLBACK_RAW];
+
+function extractSheetId(input) {
+  if (!input) return '';
+  const gidMatch = input.match(/[#?&]gid=(\d+)/);
+  if (gidMatch) {
+    const extractedGid = parseInt(gidMatch[1]);
+    if (!isNaN(extractedGid)) {
+      MAIN_GID = extractedGid;
+      localStorage.setItem('tkcle_main_gid', String(MAIN_GID));
+    }
+  }
+  const m = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+  return input.trim();
+}
+
+function findColIndex(cols, keywords) {
+  for (let i = 0; i < cols.length; i++) {
+    const label = (cols[i].label||'').trim();
+    if (keywords.some(kw => label.includes(kw))) return i;
+  }
+  return -1;
+}
+
+function parseGvizResponse(response, forceType) {
+  try {
+    const table = response.table;
+    const cols = table.cols || [];
+    const rows = [];
+    const productMap = {};
+    const sheetType = forceType || (cols.some(c=>(c.label||'').includes('상품')) ? 'cashflow' : 'main');
+
+    if (sheetType === 'main') {
+      const iYM = findColIndex(cols, ['연월']);
+      const iClient = findColIndex(cols, ['고객사', '거래처']);
+      const iBrand = findColIndex(cols, ['브랜드']);
+      const iSquad = findColIndex(cols, ['스쿼드', '담당']);
+      const iYear = findColIndex(cols, ['년']);
+      const iMonth = cols.findIndex((c,idx) => idx > iYear && (c.label||'').trim() === '월');
+      const iIN = findColIndex(cols, ['수취예정']);
+      const iOUT = findColIndex(cols, ['지불예정','지급예정']);
+      const iGP = findColIndex(cols, ['매출총이익']);
+      
+      for (const row of table.rows) {
+        const c = row.c; if (!c) continue;
+        const val = (idx) => idx >= 0 && c[idx] ? (c[idx].v !== null ? c[idx].v : (c[idx].f || '')) : '';
+        const ym = String(val(iYM)).trim(); if(!ym) continue;
+        const client = String(val(iClient)).trim();
+        const year = iYear >= 0 ? String(val(iYear)).replace(/['"]/g,'') : '';
+        const month = iMonth >= 0 ? parseInt(val(iMonth)) : 0;
+        const parseNum = (v) => parseFloat(String(v).replace(/[₩,W]/g,'')) || 0;
+        rows.push([ym, client, val(iBrand), val(iSquad), year, month, parseNum(val(iIN)), parseNum(val(iOUT)), parseNum(val(iGP))]);
+      }
+    } else if (sheetType === 'cashflow') {
+      const aggMap = {};
+      for (const row of table.rows) {
+        const c = row.c; if (!c) continue;
+        const val = (idx) => c[idx] ? (c[idx].v !== null ? c[idx].v : (c[idx].f || '')) : '';
+        const ym = String(val(0)).trim(), client = String(val(3)).trim(), product = String(val(5)).trim();
+        const year = String(val(13)).replace(/['"]/g,''), month = parseInt(val(14));
+        const inAmt = parseFloat(String(val(15)).replace(/[₩,W]/g,'')) || 0, outAmt = parseFloat(String(val(16)).replace(/[₩,W]/g,'')) || 0;
+        if (!ym || !client || isNaN(month)) continue;
+        const gp = inAmt - outAmt;
+        const pKey = client+'|'+String(val(4))+'|'+String(val(7))+'|'+year+'|'+month;
+        if (!productMap[pKey]) productMap[pKey] = {};
+        if (!productMap[pKey][product]) productMap[pKey][product] = {gp:0, inAmt:0};
+        productMap[pKey][product].gp += gp; productMap[pKey][product].inAmt += inAmt;
+      }
+      for (const [k, prods] of Object.entries(productMap)) {
+        productMap[k] = Object.entries(prods).map(([name, v]) => ({name, gp:v.gp, inAmt:v.inAmt})).sort((a,b)=>b.gp-a.gp);
+      }
+    }
+    return rows.length > 0 || Object.keys(productMap).length > 0 ? {rows, productMap, isCashflow: sheetType === 'cashflow'} : null;
+  } catch(e) { return null; }
+}
+
+const _debugLog = [];
+function dbg(msg) { console.log('[Dashboard] '+msg); _debugLog.push({t:new Date().toLocaleTimeString(), msg}); }
+function getDebugHTML() { return _debugLog.slice(-15).map(d => `<div style="font-size:11px;color:#94a3b8;font-family:monospace;padding:1px 0"><span>${d.t}</span> ${d.msg}</div>`).join(''); }
+
+let _jsonpCounter = 0;
+function loadJSONP(url) {
+  return new Promise((resolve) => {
+    const cbName = '_cb_' + (++_jsonpCounter); _pendingJsonpCb = cbName;
+    const script = document.createElement('script');
+    window[cbName] = (resp) => { script.remove(); delete window[cbName]; resolve(resp); };
+    script.src = url + '&tqx=responseHandler:'+cbName;
+    script.onerror = () => resolve(null);
+    document.body.appendChild(script);
+  });
+}
+
+async function loadData(showStatus) {
+  const sheetId = extractSheetId(SHEETS_ID);
+  if (!sheetId) return;
+  isLoading = true; if (showStatus) updateStatusUI();
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?gid=${MAIN_GID}&headers=1`;
+  const resp = await loadJSONP(url);
+  if (resp && resp.status === 'ok') {
+    const data = parseGvizResponse(resp, 'main');
+    if (data && data.rows.length) {
+      RAW = data.rows; dataSource = 'sheets'; lastUpdateTime = new Date();
+      rebuildGlobals();
+      // Try load products from gid 1-5
+      for(let g=1; g<=5; g++) {
+        const cfResp = await loadJSONP(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?gid=${g}&headers=1`);
+        if(cfResp && cfResp.status === 'ok') {
+          const cfData = parseGvizResponse(cfResp, 'cashflow');
+          if(cfData && Object.keys(cfData.productMap).length) { PRODUCT_MAP = cfData.productMap; break; }
+        }
+      }
+    }
+  }
+  isLoading = false; render();
+}
+
+function rebuildGlobals() {
+  allMonthMap = {};
+  RAW.forEach(r => {
+    const k = r[0];
+    if (!allMonthMap[k]) allMonthMap[k] = {ym:k, year:r[4], month:r[5], totalIn:0, totalOut:0, gp:0, clients:{}};
+    allMonthMap[k].totalIn += r[6]; allMonthMap[k].totalOut += r[7]; allMonthMap[k].gp += r[8];
+    const cn = r[1];
+    if (!allMonthMap[k].clients[cn]) allMonthMap[k].clients[cn] = {brand:r[2], squad:r[3], gp:0, inAmt:0};
+    allMonthMap[k].clients[cn].gp += r[8]; allMonthMap[k].clients[cn].inAmt += r[6];
+  });
+  allMonthlySorted = Object.values(allMonthMap).sort((a,b) => a.year===b.year ? a.month-b.month : a.year.localeCompare(b.year));
+}
+
+const ANNUAL_TARGET = 5000000000;
+const fmt = v => Math.abs(v) >= 100000000 ? (v/1e8).toFixed(1)+'억' : Math.round(v/10000).toLocaleString()+'만';
+const fmtW = v => '₩'+v.toLocaleString();
+
+function processData(yearFilter) {
+  const rows = yearFilter==='all' ? RAW : RAW.filter(r => r[4]===yearFilter);
+  const monthMap = {};
+  rows.forEach(r => {
+    const k = r[0];
+    if (!monthMap[k]) monthMap[k] = {ym:k, year:r[4], month:r[5], totalIn:0, totalOut:0, gp:0, clients:{}};
+    monthMap[k].totalIn += r[6]; monthMap[k].totalOut += r[7]; monthMap[k].gp += r[8];
+    const cn = r[1];
+    if (!monthMap[k].clients[cn]) monthMap[k].clients[cn] = {brand:r[2], squad:r[3], gp:0, inAmt:0};
+    monthMap[k].clients[cn].gp += r[8];
+  });
+  const monthly = Object.values(monthMap).sort((a,b) => a.year===b.year ? a.month-b.month : a.year.localeCompare(b.year));
+  let cum = 0; monthly.forEach(m => { cum += m.gp; m.cumGP = cum; });
+  return {monthly};
+}
+
+let currentYear = '25';
+let currentTab = 'overview';
+let selectedMonthIdx = null;
+
+function render() {
+  const {monthly} = processData(currentYear);
+  const am = monthly[selectedMonthIdx !== null ? selectedMonthIdx : monthly.length-1];
+  const totalGP = monthly.reduce((s,m)=>s+m.gp,0);
+  const pct = (totalGP/ANNUAL_TARGET)*100;
+  
+  // CSM Data Prep
+  const rows = RAW.filter(r=>r[0]===am.ym);
+  const csmMap = {};
+  rows.forEach(r => {
+    if(!csmMap[r[3]]) csmMap[r[3]] = {name:r[3], gp:0, clients:[], newCount:0};
+    csmMap[r[3]].gp += r[8];
+    csmMap[r[3]].clients.push({name:r[1], brand:r[2], gp:r[8]});
+  });
+  const csmList = Object.values(csmMap).sort((a,b)=>b.gp-a.gp);
+
+  const monthSelect = `<select class="month-select" onchange="selectedMonthIdx=parseInt(this.value);render()">` + 
+    monthly.map((m,i)=>`<option value="${i}" ${am.ym===m.ym?'selected':''}>${m.ym}</option>`).join('') + `</select>`;
+
+  document.getElementById('app').innerHTML = `
+    <div class="header">
+      <h1>TikCle 매출총이익 대시보드</h1>
+      <div class="year-btns">
+        <button class="year-btn ${currentYear==='25'?'active':''}" onclick="currentYear='25';render()">2025</button>
+        <button class="year-btn ${currentYear==='26'?'active':''}" onclick="currentYear='26';render()">2026</button>
+        <button class="year-btn ${currentYear==='all'?'active':''}" onclick="currentYear='all';render()">전체</button>
+      </div>
+    </div>
+    
+    <div class="tab-nav">
+      <button class="tab-btn ${currentTab==='overview'?'active':''}" onclick="currentTab='overview';render()">개요</button>
+      <button class="tab-btn ${currentTab==='csm'?'active':''}" onclick="currentTab='csm';render()">CSM별 현황</button>
+    </div>
+
+    ${currentTab==='overview' ? `
+      <div class="card">
+        <h2>📊 연간 목표 달성 현황</h2>
+        <div class="grid2">
+          <div style="text-align:center"><canvas id="gaugeCanvas"></canvas></div>
+          <div style="height:280px"><canvas id="cumCanvas"></canvas></div>
+        </div>
+      </div>
+    ` : `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;margin-bottom:16px">
+          <h2>👤 CSM별 상세 현황 (${am.ym})</h2>
+          ${monthSelect}
+        </div>
+        <div class="csm-grid">
+          ${csmList.map((csm, ci) => `
+            <div class="csm-card" onclick="document.getElementById('csm-list-${ci}').classList.toggle('show')">
+              <div class="csm-header">
+                <div class="csm-name">${csm.name}</div>
+                <div style="font-size:12px; color:#64748b">클릭하여 상세 거래처 보기</div>
+              </div>
+              <div class="csm-stats">
+                <div class="csm-stat">담당 GP<span style="color:#818cf8">${fmt(csm.gp)}</span></div>
+                <div class="csm-stat">관리 고객<span style="color:#f8fafc">${csm.clients.length}개사</span></div>
+                <div class="csm-stat">월 평균 GP<span style="color:#22d3ee">${fmt(csm.gp/csm.clients.length)}</span></div>
+                <div class="csm-stat">상태<span style="color:#4ade80">정상</span></div>
+              </div>
+              <div class="csm-clients" id="csm-list-${ci}">
+                <table>
+                  ${csm.clients.sort((a,b)=>b.gp-a.gp).map(c => `
+                    <tr>
+                      <td style="color:#f8fafc; font-weight:500">${c.name}</td>
+                      <td style="color:#94a3b8">${c.brand}</td>
+                      <td>${renderProdTags(c.name, c.brand, csm.name, am.year, am.month)}</td>
+                      <td style="text-align:right; font-weight:600; color:#818cf8">${fmt(c.gp)}</td>
+                    </tr>
+                  `).join('')}
+                </table>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `}
+  `;
+
+  if(currentTab==='overview') {
+    drawGauge(document.getElementById('gaugeCanvas'), pct);
+    new Chart(document.getElementById('cumCanvas'), {
+      type:'line', data:{ labels:monthly.map(m=>m.ym), datasets:[{label:'누적GP',data:monthly.map(m=>m.cumGP),borderColor:'#6366f1',fill:true,tension:0.3}] },
+      options: { maintainAspectRatio:false }
+    });
+  }
+}
+
+function updateStatusUI() { dbg('Data Loading...'); }
+function toggleConfigUI() { loadData(true); }
+
+loadData(false);
+</script>
+</body>
+</html>
