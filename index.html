@@ -97,7 +97,7 @@
   .footer { color:#475569; font-size:11px; text-align:center; margin-top:20px; padding:12px; }
   canvas { max-height:280px; }
   .chart-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-  .csm-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px; margin-bottom:20px; }
+  .csm-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); gap:16px; margin-bottom:20px; }
   .csm-card { background:#0f172a; border-radius:12px; padding:18px; border:1px solid #334155; cursor:pointer; transition:all .2s; }
   .csm-card:hover { border-color:#6366f1; transform:translateY(-2px); }
   .csm-card.expanded { border-color:#6366f1; }
@@ -153,6 +153,22 @@
   .prod-sub-btn.active { background:#4f46e5; color:#fff; border-color:#4f46e5; }
   .prod-sub-content { display:none; }
   .prod-sub-content.active { display:block; }
+  /* CSM Sub-tabs */
+  .csm-sub-nav { display:flex; gap:4px; margin-bottom:20px; }
+  .csm-sub-btn { padding:8px 20px; border-radius:8px; border:1px solid #334155; background:transparent; color:#94a3b8; cursor:pointer; font-size:13px; font-weight:500; transition:all .2s; }
+  .csm-sub-btn:hover { border-color:#6366f1; color:#c7d2fe; }
+  .csm-sub-btn.active { background:#4f46e5; color:#fff; border-color:#4f46e5; }
+  /* Calendar Gantt */
+  .cal-wrap { overflow-x:auto; margin-top:12px; }
+  .cal-table { width:100%; border-collapse:collapse; font-size:12px; }
+  .cal-table th { background:#1e293b; color:#94a3b8; font-weight:500; padding:8px 6px; text-align:center; border-bottom:1px solid #334155; position:sticky; top:0; z-index:2; white-space:nowrap; }
+  .cal-table th:first-child { text-align:left; min-width:120px; position:sticky; left:0; z-index:3; background:#1e293b; }
+  .cal-table td { padding:4px 3px; text-align:center; border-bottom:1px solid #1e293b44; vertical-align:top; }
+  .cal-table td:first-child { text-align:left; font-weight:500; color:#f8fafc; position:sticky; left:0; background:#0f172a; z-index:1; }
+  .cal-table tr:hover td { background:#1e293b55; }
+  .cal-table tr:hover td:first-child { background:#1e293b; }
+  .cal-bar { display:inline-block; border-radius:4px; padding:2px 6px; font-size:10px; font-weight:500; white-space:nowrap; margin:1px 0; line-height:1.4; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+  .csm-section-label { font-size:12px; font-weight:600; color:#818cf8; padding:10px 6px 6px; border-bottom:2px solid #334155; }
   @media (max-width:900px) {
     .grid2 { grid-template-columns:1fr; }
     .chart-row { grid-template-columns:1fr; }
@@ -180,7 +196,7 @@
 </div>
 <script>
 // ─── Password Protection ───
-const _PW_HASH = '879a05d8';
+const _PW_HASH = '1f7192c8';
 function simpleHash(s) {
   let h = 0;
   for (let i = 0; i < s.length; i++) { h = ((h << 5) - h + s.charCodeAt(i)) | 0; }
@@ -217,6 +233,7 @@ let dataSource = 'fallback';
 let lastUpdateTime = null;
 let isLoading = false;
 let PRODUCT_MAP = {};
+let CAMPAIGN_DATA = []; // [{campaign, client, brand, product, squad, year, month, discStart, discEnd, shipStart, recStart, recEnd, contractEnd, tgtAccept, tgtShip, tgtRec, actualRecEnd}]
 // ─── Google gviz 기본 응답 핸들러 (JSONP 에러 캐치용) ────────────
 // Google의 gviz API는 에러 발생 시 tqx=responseHandler를 무시하고
 // google.visualization.Query.setResponse()를 호출함 → 이를 캐치
@@ -656,7 +673,8 @@ function parseGvizResponse(response, forceType) {
         rows.push([ym, client, brand, squad, year, month, inAmt, outAmt, gp]);
       }
     } else if (sheetType === 'cashflow') {
-      // ─── Cashflow 시트: 기존 cashflow 파싱 + 상품 집계 ───
+      // ─── Cashflow 시트: 기존 cashflow 파싱 + 상품 집계 + 캠페인 타임라인 ───
+      let campaignTimeline = null;
       const aggMap = {};
       for (const row of table.rows) {
         const c = row.c;
@@ -681,6 +699,18 @@ function parseGvizResponse(response, forceType) {
           if (!productMap[pKey][product]) productMap[pKey][product] = {gp:0, inAmt:0};
           productMap[pKey][product].gp += gp;
           productMap[pKey][product].inAmt += inAmt;
+        }
+        // ─── Campaign timeline data (cols 2,26~35) ───
+        const campName = String(val(2)).trim();
+        const dateVal = (idx) => { const v = val(idx); if (!v) return null; const s = String(v).trim(); if (!s || s === '—') return null; if (s.match(/^Date\(/)) { const dm = s.match(/Date\((\d+),(\d+),(\d+)\)/); if(dm) return new Date(+dm[1],+dm[2],+dm[3]).toISOString().slice(0,10); } return s.length >= 10 ? s.slice(0,10) : null; };
+        const numVal = (idx) => { const v = val(idx); return v ? (parseInt(v) || 0) : 0; };
+        const discStart = dateVal(26), discEnd = dateVal(27), shipStart = dateVal(28);
+        const recStart = dateVal(29), recEnd = dateVal(30), contractEnd = dateVal(31);
+        const actualRecEnd = dateVal(35);
+        const tgtAccept = numVal(32), tgtShip = numVal(33), tgtRec = numVal(34);
+        if (campName && (discStart || shipStart || recStart || contractEnd)) {
+          if (!campaignTimeline) campaignTimeline = [];
+          campaignTimeline.push({campaign:campName, client, brand, product, squad, year, month, gp, discStart, discEnd, shipStart, recStart, recEnd, contractEnd, tgtAccept, tgtShip, tgtRec, actualRecEnd});
         }
       }
       for (const a of Object.values(aggMap)) {
@@ -710,7 +740,8 @@ function parseGvizResponse(response, forceType) {
       }
     }
     const isCashflow = sheetType === 'cashflow';
-    return rows.length > 0 ? {rows, productMap, isCashflow} : null;
+    const campaignData = (typeof campaignTimeline !== 'undefined' && campaignTimeline) ? campaignTimeline : null;
+    return rows.length > 0 ? {rows, productMap, isCashflow, campaignData} : null;
   } catch(e) {
     if (typeof dbg === 'function') dbg('❌ gviz parse error: '+e.message);
     console.error('gviz parse error:', e);
@@ -915,6 +946,7 @@ function parseCashflowForProducts(response) {
     const numCols = table.cols ? table.cols.length : 0;
     if (numCols < 15) return null; // cashflow 형식이 아님
     const productMap = {};
+    const campList = [];
     let rowCount = 0;
     for (const row of table.rows) {
       const c = row.c;
@@ -937,6 +969,17 @@ function parseCashflowForProducts(response) {
       productMap[pKey][product].gp += gp;
       productMap[pKey][product].inAmt += inAmt;
       rowCount++;
+      // Campaign timeline extraction
+      const campName = String(val(2)).trim();
+      const dateVal2 = (idx) => { const v = val(idx); if (!v) return null; const s = String(v).trim(); if (!s || s === '—') return null; if (s.match(/^Date\(/)) { const dm = s.match(/Date\((\d+),(\d+),(\d+)\)/); if(dm) return new Date(+dm[1],+dm[2],+dm[3]).toISOString().slice(0,10); } return s.length >= 10 ? s.slice(0,10) : null; };
+      const numVal2 = (idx) => { const v = val(idx); return v ? (parseInt(v) || 0) : 0; };
+      if (numCols > 26 && campName) {
+        const ds = dateVal2(26), de = dateVal2(27), ss = dateVal2(28), rs = dateVal2(29), re = dateVal2(30), ce = dateVal2(31), are = dateVal2(35);
+        const ta = numVal2(32), ts = numVal2(33), tr = numVal2(34);
+        if (ds || ss || rs || ce) {
+          campList.push({campaign:campName, client, brand, product, squad, year, month, gp, discStart:ds, discEnd:de, shipStart:ss, recStart:rs, recEnd:re, contractEnd:ce, tgtAccept:ta, tgtShip:ts, tgtRec:tr, actualRecEnd:are});
+        }
+      }
     }
     // Array 형태로 변환 (GP 내림차순 정렬)
     const result = {};
@@ -944,6 +987,11 @@ function parseCashflowForProducts(response) {
       result[k] = Object.entries(prods)
         .map(([name, v]) => ({name, gp:v.gp, inAmt:v.inAmt}))
         .sort((a,b) => b.gp - a.gp);
+    }
+    // Store campaign data globally
+    if (campList.length > 0) {
+      CAMPAIGN_DATA = campList;
+      dbg('✅ 캠페인 타임라인 '+campList.length+'건 로드 (cashflow 별도 파싱)');
     }
     dbg('Cashflow 파싱: '+rowCount+'행 → '+Object.keys(result).length+'개 상품 키');
     return Object.keys(result).length > 0 ? result : null;
@@ -956,7 +1004,8 @@ function parseCashflowForProducts(response) {
 async function loadProductData(sheetId) {
   dbg('📦 상품 데이터 로드 시작...');
   const manualGid = localStorage.getItem('tkcle_cashflow_gid');
-  const gidList = manualGid ? [parseInt(manualGid)] : [1, 2, 3, 4, 5];
+  const defaultGids = [0, 1, 2, 3, 4, 5].filter(g => g !== MAIN_GID);
+  const gidList = manualGid ? [parseInt(manualGid)] : defaultGids;
   dbg('탐색 gid 목록: ['+gidList.join(',')+']'+(manualGid?' (수동설정)':''));
   let mainSig = null;
   if (RAW.length > 0) {
@@ -982,7 +1031,8 @@ async function loadProductData(sheetId) {
     }
     const rows = response.table.rows || [];
     const numCols = response.table.cols?.length || 0;
-    const sig = rows.length + '|' + (rows[0]?.c||[]).map(c => c?.v||'').join('|').substring(0, 100);
+    // 메인 시트 중복 방지: 열 수가 다르면 다른 시트로 간주 (cashflow는 보통 30열 이상)
+    const sig = numCols + ':' + rows.length + '|' + (rows[0]?.c||[]).map(c => c?.v||'').join('|').substring(0, 100);
     if (mainSig && sig === mainSig) {
       dbg('gid='+gid+': 메인 시트 중복 → skip');
       continue;
@@ -1016,6 +1066,10 @@ async function loadData(showStatus) {
     if (sheetsData.productMap && Object.keys(sheetsData.productMap).length > 0) {
       PRODUCT_MAP = sheetsData.productMap;
       dbg('✅ 메인 시트에서 상품 데이터 포함 ('+Object.keys(PRODUCT_MAP).length+'개 키)');
+    }
+    if (sheetsData.campaignData && sheetsData.campaignData.length > 0) {
+      CAMPAIGN_DATA = sheetsData.campaignData;
+      dbg('✅ 캠페인 타임라인 데이터 '+CAMPAIGN_DATA.length+'건 로드');
     }
     dataSource = 'sheets';
     lastUpdateTime = new Date();
@@ -1202,13 +1256,23 @@ function processData(yearFilter) {
     const idx = allMonthlySorted.findIndex(m => m.ym === ym);
     return idx > 0 ? allMonthlySorted[idx-1] : null;
   };
+  // 특정 월 이후에 다시 등장하는 고객사 Set (공백 후 복귀하는 캠페인 제외용)
+  const getFutureClients = (ym) => {
+    const idx = monthly.findIndex(m => m.ym === ym);
+    const futureClients = new Set();
+    for (let i = idx + 1; i < monthly.length; i++) {
+      Object.keys(monthly[i].clients).forEach(c => futureClients.add(c));
+    }
+    return futureClients;
+  };
   const waterfall = monthly.map((curr) => {
     const prev = getPrevFromAll(curr.ym);
     const cc = new Set(Object.keys(curr.clients));
     const pc = prev ? new Set(Object.keys(prev.clients)) : new Set();
+    const fc = getFutureClients(curr.ym);
     let newGP=0, contChg=0, endGP=0;
     cc.forEach(c => { if(!pc.has(c)) newGP+=curr.clients[c].gp; else contChg+=curr.clients[c].gp-(prev.clients[c]?.gp||0); });
-    if(prev) pc.forEach(c => { if(!cc.has(c)) endGP-=prev.clients[c].gp; });
+    if(prev) pc.forEach(c => { if(!cc.has(c) && !fc.has(c)) endGP-=prev.clients[c].gp; });
     return {ym:curr.ym, gp:curr.gp, newGP, contChg, endGP};
   });
   const getPortfolio = idx => {
@@ -1220,7 +1284,8 @@ function processData(yearFilter) {
       status: pc.has(n)?'C':'N',
       chg: prev?.clients[n] ? d.gp - prev.clients[n].gp : null
     })).sort((a,b) => b.gp - a.gp);
-    const ended = prev ? Object.entries(prev.clients).filter(([n])=>!m.clients[n]).map(([n,d])=>({name:n,brand:d.brand,gp:d.gp})) : [];
+    const fc = getFutureClients(m.ym);
+    const ended = prev ? Object.entries(prev.clients).filter(([n])=>!m.clients[n] && !fc.has(n)).map(([n,d])=>({name:n,brand:d.brand,gp:d.gp})) : [];
     return {active, ended};
   };
   const getCSMData = idx => {
@@ -1242,10 +1307,11 @@ function processData(yearFilter) {
       });
     });
     if(prev) {
+      const fc = getFutureClients(m.ym);
       const prevRows = RAW.filter(r=>r[0]===prev.ym);
       const seen = new Set();
       prevRows.forEach(r => {
-        if(!curClients.has(r[1]) && !seen.has(r[1]+'||'+r[3])) {
+        if(!curClients.has(r[1]) && !fc.has(r[1]) && !seen.has(r[1]+'||'+r[3])) {
           seen.add(r[1]+'||'+r[3]);
           const sq = r[3];
           if(!csmMap[sq]) csmMap[sq] = {name:sq, gp:0, inAmt:0, clients:{}, newCount:0, endedCount:0, endedList:[]};
@@ -1357,7 +1423,31 @@ function processData(yearFilter) {
             insights: {topGrowth, topDecline, newProds, topProd, lastYm, prevYm}};
   };
   const totalGP = monthly.reduce((s,m)=>s+m.gp,0);
-  return {monthly, waterfall, getPortfolio, getCSMData, getHeatmap, getProductAnalysis, totalGP};
+  // ─── CSM Resource Calendar ───
+  const getCSMCalendar = () => {
+    // Build: CSM → [ {client, brand, months:[ym,...]} ]
+    const csmClients = {}; // squad → client|brand → Set(ym)
+    rows.forEach(r => {
+      const sq = r[3], client = r[1], brand = r[2], ym = r[0];
+      if (!sq) return;
+      if (!csmClients[sq]) csmClients[sq] = {};
+      const key = client + '|' + brand;
+      if (!csmClients[sq][key]) csmClients[sq][key] = {client, brand, yms: new Set(), gpTotal: 0};
+      csmClients[sq][key].yms.add(ym);
+      csmClients[sq][key].gpTotal += r[8];
+    });
+    const allYms = monthly.map(m => m.ym);
+    const calColors = ['#6366f1','#22d3ee','#f59e0b','#10b981','#f87171','#a78bfa','#fb923c','#ec4899','#84cc16','#06b6d4'];
+    const csmList = Object.entries(csmClients).map(([sq, clients]) => {
+      const entries = Object.values(clients).sort((a, b) => b.gpTotal - a.gpTotal);
+      const totalClients = entries.length;
+      const activeMonths = new Set();
+      entries.forEach(e => e.yms.forEach(ym => activeMonths.add(ym)));
+      return { name: sq, entries, totalClients, activeMonthCount: activeMonths.size };
+    }).sort((a, b) => b.entries.reduce((s, e) => s + e.gpTotal, 0) - a.entries.reduce((s, e) => s + e.gpTotal, 0));
+    return { csmList, allYms, calColors };
+  };
+  return {monthly, waterfall, getPortfolio, getCSMData, getHeatmap, getProductAnalysis, getCSMCalendar, totalGP};
 }
 // ─── Charts ──────────────────────────────────────────────────────
 let gaugeChart, cumChart, gpBarChart, wfChart, popupChart;
@@ -1635,13 +1725,14 @@ function renderProductCharts(pa, midx) {
   }
 }
 // ─── Render ──────────────────────────────────────────────────────
-let currentYear = '25';
+let currentYear = '26';
 let selectedMonthIdx = null;
 let currentTab = 'overview';
 let currentProdSub = 'count';
+let currentCsmSub = 'revenue';
 function render() {
   const data = processData(currentYear);
-  const {monthly, waterfall, getPortfolio, getCSMData, getHeatmap, getProductAnalysis, totalGP} = data;
+  const {monthly, waterfall, getPortfolio, getCSMData, getHeatmap, getProductAnalysis, getCSMCalendar, totalGP} = data;
   if(!monthly.length){ document.getElementById('app').innerHTML='<div style="text-align:center;padding:60px;color:#f87171">선택한 기간에 데이터가 없습니다.</div>'; return; }
   const months = currentYear==='all' ? monthly.length : 12;
   const elapsed = monthly.length;
@@ -1649,7 +1740,12 @@ function render() {
   const avgNeeded = (ANNUAL_TARGET - totalGP) / Math.max(1, months - elapsed);
   const pct = (totalGP/ANNUAL_TARGET)*100;
   const yearLabel = currentYear==='25'?'2025년':currentYear==='26'?'2026년':'전체';
-  const midx = selectedMonthIdx !== null && selectedMonthIdx < monthly.length ? selectedMonthIdx : monthly.length-1;
+  const midx = selectedMonthIdx !== null && selectedMonthIdx < monthly.length ? selectedMonthIdx : (()=>{
+    const now = new Date();
+    const curYm = String(now.getFullYear()-2000).padStart(2,'0')+'년 '+String(now.getMonth()+1).padStart(2,'0')+'월';
+    const found = monthly.findIndex(m => m.ym === curYm);
+    return found >= 0 ? found : monthly.length-1;
+  })();
   const port = getPortfolio(midx);
   const am = monthly[midx];
   const prevMonthFull = am ? (()=>{
@@ -1823,36 +1919,197 @@ function render() {
             <h2 style="margin-bottom:2px">👤 CSM별 현황</h2>
             <p style="color:#64748b;font-size:12px">${am?.ym||''} · 담당자 ${csmData.length}명</p>
           </div>
-          ${monthSelectHTML}
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            ${currentCsmSub==='revenue' ? monthSelectHTML : ''}
+          </div>
         </div>
-        <div style="height:${Math.max(200, csmData.length*40+60)}px;margin-bottom:20px"><canvas id="csmBarCanvas"></canvas></div>
-        <div class="csm-grid">
-          ${csmData.map((csm,ci)=>{
-            const momCSM = csm.prevGP!==null ? (()=>{
-              const diff = csm.gp - csm.prevGP;
-              const p = csm.prevGP!==0 ? ((diff/csm.prevGP)*100).toFixed(1) : (diff>0?'∞':'0.0');
-              return '<span style="color:'+(diff>=0?'#4ade80':'#f87171')+';font-size:11px">MoM '+(diff>=0?'▲':'▼')+' '+p+'%</span>';
-            })() : '';
-            return '<div class="csm-card" onclick="toggleCSM('+ci+')"><div class="csm-name">'+csm.name+'</div>'+
-              '<div class="csm-stats">'+
-                '<div class="csm-stat">담당 GP<span style="color:#818cf8">'+fmt(csm.gp)+'</span></div>'+
-                '<div class="csm-stat">관리 고객<span style="color:#f8fafc">'+csm.clientCount+'개사</span></div>'+
-                '<div class="csm-stat">신규 유치<span style="color:#10b981">'+csm.newCount+'건</span></div>'+
-                '<div class="csm-stat">OUT<span style="color:#ef4444">'+csm.endedCount+'건</span></div>'+
-              '</div>'+
-              '<div style="font-size:12px">'+momCSM+'</div>'+
-              '<div class="csm-clients" id="csm-list-'+ci+'">'+
-                '<table style="width:100%;border-collapse:collapse;font-size:12px">'+
-                csm.clientList.map(c=>{
-                  const bg = c.isNew ? 'background:rgba(16,185,129,0.08);' : '';
-                  const nameColor = c.isNew ? '#6ee7b7' : '#f8fafc';
-                  const tag = c.isNew ? ' <span style="color:#10b981;font-size:10px;font-weight:600">NEW</span>' : '';
-                  return '<tr style="border-bottom:1px solid #1e293b44;'+bg+'"><td style="padding:6px 0;color:'+nameColor+';font-weight:500">'+c.name+tag+'</td><td style="padding:6px 4px;color:#94a3b8">'+c.brand+'</td><td style="padding:6px 0;text-align:right;color:'+(c.gp>=0?'#818cf8':'#f87171')+';font-weight:600;white-space:nowrap">'+fmt(c.gp)+'</td></tr>';
-                }).join('')+
-                (csm.endedList.length>0 ?
-                  csm.endedList.map(c=>'<tr style="border-bottom:1px solid #1e293b44;background:rgba(239,68,68,0.08)"><td style="padding:6px 0;color:#fca5a5;font-weight:500">'+c.name+' <span style="color:#ef4444;font-size:10px;font-weight:600">OUT</span></td><td style="padding:6px 4px;color:#94a3b8">'+c.brand+'</td><td style="padding:6px 0;text-align:right;color:#f87171;font-weight:600;white-space:nowrap">-'+fmt(Math.abs(c.gp))+'</td></tr>').join('') : '')+
-                '</table></div></div>';
-          }).join('')}
+        <div class="csm-sub-nav">
+          <button class="csm-sub-btn ${currentCsmSub==='revenue'?'active':''}" onclick="setCsmSub('revenue')">💰 매출 현황</button>
+          <button class="csm-sub-btn ${currentCsmSub==='resource'?'active':''}" onclick="setCsmSub('resource')">📅 캠페인 현황</button>
+        </div>
+        <!-- CSM Sub: Revenue -->
+        <div style="display:${currentCsmSub==='revenue'?'block':'none'}">
+          <div style="height:${Math.max(200, csmData.length*40+60)}px;margin-bottom:20px"><canvas id="csmBarCanvas"></canvas></div>
+          <div class="csm-grid">
+            ${csmData.map((csm,ci)=>{
+              const momCSM = csm.prevGP!==null ? (()=>{
+                const diff = csm.gp - csm.prevGP;
+                const p = csm.prevGP!==0 ? ((diff/csm.prevGP)*100).toFixed(1) : (diff>0?'∞':'0.0');
+                return '<span style="color:'+(diff>=0?'#4ade80':'#f87171')+';font-size:11px">MoM '+(diff>=0?'▲':'▼')+' '+p+'%</span>';
+              })() : '';
+              return '<div class="csm-card" onclick="toggleCSM('+ci+')"><div class="csm-name">'+csm.name+'</div>'+
+                '<div class="csm-stats">'+
+                  '<div class="csm-stat">담당 GP<span style="color:#818cf8">'+fmt(csm.gp)+'</span></div>'+
+                  '<div class="csm-stat">관리 고객<span style="color:#f8fafc">'+csm.clientCount+'개사</span></div>'+
+                  '<div class="csm-stat">신규 유치<span style="color:#10b981">'+csm.newCount+'건</span></div>'+
+                  '<div class="csm-stat">OUT<span style="color:#ef4444">'+csm.endedCount+'건</span></div>'+
+                '</div>'+
+                '<div style="font-size:12px">'+momCSM+'</div>'+
+                '<div class="csm-clients" id="csm-list-'+ci+'">'+
+                  '<table style="width:100%;border-collapse:collapse;font-size:12px">'+
+                  csm.clientList.map(c=>{
+                    const bg = c.isNew ? 'background:rgba(16,185,129,0.08);' : '';
+                    const nameColor = c.isNew ? '#6ee7b7' : '#f8fafc';
+                    const tag = c.isNew ? ' <span style="color:#10b981;font-size:10px;font-weight:600">NEW</span>' : '';
+                    return '<tr style="border-bottom:1px solid #1e293b44;'+bg+'"><td style="padding:6px 0;color:'+nameColor+';font-weight:500">'+c.name+tag+'</td><td style="padding:6px 4px;color:#94a3b8">'+c.brand+'</td><td style="padding:6px 0;text-align:right;color:'+(c.gp>=0?'#818cf8':'#f87171')+';font-weight:600;white-space:nowrap">'+fmt(c.gp)+'</td></tr>';
+                  }).join('')+
+                  (csm.endedList.length>0 ?
+                    csm.endedList.map(c=>'<tr style="border-bottom:1px solid #1e293b44;background:rgba(239,68,68,0.08)"><td style="padding:6px 0;color:#fca5a5;font-weight:500">'+c.name+' <span style="color:#ef4444;font-size:10px;font-weight:600">OUT</span></td><td style="padding:6px 4px;color:#94a3b8">'+c.brand+'</td><td style="padding:6px 0;text-align:right;color:#f87171;font-weight:600;white-space:nowrap">-'+fmt(Math.abs(c.gp))+'</td></tr>').join('') : '')+
+                  '</table></div></div>';
+            }).join('')}
+          </div>
+        </div>
+        <!-- CSM Sub: Campaign Gantt -->
+        <div style="display:${currentCsmSub==='resource'?'block':'none'}">
+          ${(()=>{
+            if (!CAMPAIGN_DATA || CAMPAIGN_DATA.length === 0) {
+              return '<div style="text-align:center;padding:40px;color:#64748b"><div style="font-size:32px;margin-bottom:12px">📅</div><div style="font-size:14px;margin-bottom:8px">캠페인 타임라인 데이터 없음</div><div style="font-size:12px">cashflow 시트의 AA~AJ열(디스커버리~회수 일정)에 데이터가 입력되면 여기에 Gantt 차트가 표시됩니다.</div></div>';
+            }
+            // Group by CSM → campaigns (deduplicate by campaign name, merge dates)
+            const csmCamps = {};
+            CAMPAIGN_DATA.forEach(d => {
+              const sq = d.squad || '미지정';
+              if (!csmCamps[sq]) csmCamps[sq] = {};
+              const key = d.campaign;
+              if (!csmCamps[sq][key]) csmCamps[sq][key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, squad:sq, discStart:null, discEnd:null, shipStart:null, recStart:null, recEnd:null, contractEnd:null, actualRecEnd:null, tgtAccept:0, tgtShip:0, tgtRec:0, gpTotal:0, monthCount:0};
+              const c = csmCamps[sq][key];
+              c.gpTotal += d.gp || 0;
+              c.monthCount++;
+              // Take earliest start, latest end for each phase
+              const minD = (a,b) => !a ? b : !b ? a : (a < b ? a : b);
+              const maxD = (a,b) => !a ? b : !b ? a : (a > b ? a : b);
+              c.discStart = minD(c.discStart, d.discStart);
+              c.discEnd = maxD(c.discEnd, d.discEnd);
+              c.shipStart = minD(c.shipStart, d.shipStart);
+              c.recStart = minD(c.recStart, d.recStart);
+              c.recEnd = maxD(c.recEnd, d.recEnd);
+              c.contractEnd = maxD(c.contractEnd, d.contractEnd);
+              c.actualRecEnd = maxD(c.actualRecEnd, d.actualRecEnd);
+              c.tgtAccept = Math.max(c.tgtAccept, d.tgtAccept || 0);
+              c.tgtShip = Math.max(c.tgtShip, d.tgtShip || 0);
+              c.tgtRec = Math.max(c.tgtRec, d.tgtRec || 0);
+            });
+            // Find global date range
+            let allDates = [];
+            Object.values(csmCamps).forEach(camps => Object.values(camps).forEach(c => {
+              [c.discStart,c.discEnd,c.shipStart,c.recStart,c.recEnd,c.contractEnd,c.actualRecEnd].forEach(d => { if(d) allDates.push(d); });
+            }));
+            if (allDates.length === 0) return '<div style="text-align:center;padding:40px;color:#64748b">일정 데이터가 없습니다.</div>';
+            allDates.sort();
+            // Build week columns from min to max date
+            const minDate = new Date(allDates[0]);
+            const maxDate = new Date(allDates[allDates.length-1]);
+            // Use month granularity for Gantt
+            const ganttMonths = [];
+            let d = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+            while (d <= maxDate) {
+              ganttMonths.push({y:d.getFullYear(), m:d.getMonth(), label:(d.getMonth()+1)+'월', yearLabel:String(d.getFullYear()).slice(2)});
+              d = new Date(d.getFullYear(), d.getMonth()+1, 1);
+            }
+            // Add one extra month buffer
+            ganttMonths.push({y:d.getFullYear(), m:d.getMonth(), label:(d.getMonth()+1)+'월', yearLabel:String(d.getFullYear()).slice(2)});
+            const totalMonths = ganttMonths.length;
+            const today = new Date().toISOString().slice(0,10);
+            // Helper: date → month index (fractional for within-month positioning)
+            const dateToIdx = (ds) => {
+              if (!ds) return null;
+              const dt = new Date(ds);
+              const mi = ganttMonths.findIndex(gm => gm.y===dt.getFullYear() && gm.m===dt.getMonth());
+              if (mi < 0) return ds < allDates[0] ? 0 : totalMonths - 1;
+              return mi + (dt.getDate()-1)/30;
+            };
+            // Phase colors
+            const phaseColors = {disc:'#818cf8', ship:'#22d3ee', rec:'#f59e0b', contract:'#64748b'};
+            const phaseNames = {disc:'디스커버리', ship:'배송', rec:'회수', contract:'계약'};
+            // Summary KPIs
+            const allCamps = Object.values(csmCamps).flatMap(c => Object.values(c));
+            const uniqueCamps = allCamps.length;
+            const csmCount = Object.keys(csmCamps).length;
+            const withTargets = allCamps.filter(c => c.tgtAccept > 0 || c.tgtShip > 0 || c.tgtRec > 0).length;
+            const summaryHTML = '<div class="kpi-grid" style="margin-bottom:20px">'+
+              '<div class="kpi" style="border-color:#818cf8"><div class="label">담당자</div><div class="value" style="color:#818cf8">'+csmCount+'명</div></div>'+
+              '<div class="kpi" style="border-color:#22d3ee"><div class="label">캠페인</div><div class="value" style="color:#22d3ee">'+uniqueCamps+'건</div></div>'+
+              '<div class="kpi" style="border-color:#f59e0b"><div class="label">목표 설정</div><div class="value" style="color:#f59e0b">'+withTargets+'건</div></div>'+
+              '<div class="kpi" style="border-color:#4ade80"><div class="label">기간</div><div class="value" style="color:#4ade80">'+totalMonths+'개월</div></div>'+
+            '</div>';
+            // Legend
+            const legendHTML = '<div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">'+
+              Object.entries(phaseColors).map(([k,c])=>'<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#94a3b8"><span style="width:14px;height:8px;border-radius:3px;background:'+c+';display:inline-block"></span>'+phaseNames[k]+'</span>').join('')+
+              '<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#94a3b8"><span style="width:1px;height:14px;background:#ef4444;display:inline-block"></span>오늘</span>'+
+            '</div>';
+            // Month headers (group by year)
+            let yearHeaders = '', monthHeaders = '';
+            let prevYear = '';
+            let yearSpan = 0;
+            ganttMonths.forEach((gm, i) => {
+              const yr = gm.yearLabel;
+              if (yr !== prevYear) {
+                if (prevYear) yearHeaders += '<th colspan="'+yearSpan+'" style="text-align:left;color:#64748b;font-size:10px;border-bottom:none">20'+prevYear+'</th>';
+                prevYear = yr; yearSpan = 1;
+              } else { yearSpan++; }
+              if (i === ganttMonths.length-1) yearHeaders += '<th colspan="'+yearSpan+'" style="text-align:left;color:#64748b;font-size:10px;border-bottom:none">20'+yr+'</th>';
+              const nowMonth = new Date();
+              const isCur = gm.y === nowMonth.getFullYear() && gm.m === nowMonth.getMonth();
+              const style = isCur ? 'color:#818cf8;font-weight:700' : '';
+              monthHeaders += '<th style="'+style+';min-width:40px;font-size:11px">'+gm.label+'</th>';
+            });
+            // Gantt rows
+            let bodyHTML = '';
+            const sortedCSMs = Object.entries(csmCamps).sort((a,b) => {
+              const aGP = Object.values(a[1]).reduce((s,c)=>s+c.gpTotal,0);
+              const bGP = Object.values(b[1]).reduce((s,c)=>s+c.gpTotal,0);
+              return bGP - aGP;
+            });
+            sortedCSMs.forEach(([sq, camps]) => {
+              const campList = Object.values(camps).sort((a,b) => {
+                const aStart = a.discStart || a.shipStart || a.recStart || 'z';
+                const bStart = b.discStart || b.shipStart || b.recStart || 'z';
+                return aStart < bStart ? -1 : 1;
+              });
+              bodyHTML += '<tr><td class="csm-section-label" colspan="'+(totalMonths+1)+'" style="background:#0f172a">'+sq+' <span style="color:#64748b;font-weight:400;font-size:11px">'+campList.length+'개 캠페인</span></td></tr>';
+              campList.forEach(c => {
+                // Build phases
+                const phases = [];
+                if (c.discStart) phases.push({type:'disc', start:c.discStart, end:c.discEnd||c.shipStart||c.discStart});
+                if (c.shipStart) phases.push({type:'ship', start:c.shipStart, end:c.recStart||c.shipStart});
+                if (c.recStart) phases.push({type:'rec', start:c.recStart, end:c.recEnd||c.recStart});
+                if (c.contractEnd) phases.push({type:'contract', start:c.contractEnd, end:c.contractEnd});
+                // Target labels
+                const tgtLabels = [];
+                if (c.tgtAccept) tgtLabels.push('수락 '+c.tgtAccept.toLocaleString());
+                if (c.tgtShip) tgtLabels.push('배송 '+c.tgtShip.toLocaleString());
+                if (c.tgtRec) tgtLabels.push('회수 '+c.tgtRec.toLocaleString());
+                const tgtStr = tgtLabels.length > 0 ? ' · 목표: '+tgtLabels.join(', ') : '';
+                // Campaign name cell
+                const shortName = c.campaign.length > 30 ? c.campaign.slice(0,28)+'…' : c.campaign;
+                bodyHTML += '<tr><td style="font-size:11px;padding-left:12px;white-space:nowrap" title="'+c.campaign+tgtStr+'">'+shortName+'</td>';
+                // Gantt cells
+                ganttMonths.forEach((gm, mi) => {
+                  const cellPhases = phases.filter(p => {
+                    const si = dateToIdx(p.start), ei = dateToIdx(p.end);
+                    if (si === null) return false;
+                    return (si <= mi+0.99 && (ei === null || ei >= mi));
+                  });
+                  if (cellPhases.length > 0) {
+                    const bars = cellPhases.map(p => {
+                      const isPast = p.end && p.end < today;
+                      const opacity = isPast ? '0.6' : '1';
+                      return '<span style="display:block;height:8px;border-radius:3px;background:'+phaseColors[p.type]+';opacity:'+opacity+';margin:1px 0" title="'+phaseNames[p.type]+': '+(p.start||'?')+' ~ '+(p.end||'?')+'"></span>';
+                    }).join('');
+                    bodyHTML += '<td style="padding:4px 1px;vertical-align:middle">'+bars+'</td>';
+                  } else {
+                    bodyHTML += '<td></td>';
+                  }
+                });
+                bodyHTML += '</tr>';
+              });
+            });
+            // Today marker via CSS (injected as colgroup)
+            const todayIdx = dateToIdx(today);
+            return summaryHTML + legendHTML +
+              '<p class="sub" style="margin-bottom:12px">CSM별 캠페인 일정 Gantt · 가로 스크롤로 전체 기간 확인</p>' +
+              '<div class="cal-wrap" style="max-height:600px;overflow:auto"><table class="cal-table"><thead><tr><th></th>'+yearHeaders+'</tr><tr><th>캠페인</th>'+monthHeaders+'</tr></thead><tbody>'+bodyHTML+'</tbody></table></div>';
+          })()}
         </div>
       </div>
     </div>
@@ -2002,6 +2259,7 @@ function setYear(y) { currentYear=y; selectedMonthIdx=null; render(); }
 function setMonth(idx) { selectedMonthIdx=parseInt(idx); render(); }
 function switchTab(tab) { currentTab=tab; render(); }
 function setProdSub(sub) { currentProdSub=sub; render(); }
+function setCsmSub(sub) { currentCsmSub=sub; render(); }
 function toggleCSM(idx) {
   const el = document.getElementById('csm-list-'+idx);
   if(el) el.classList.toggle('show');
