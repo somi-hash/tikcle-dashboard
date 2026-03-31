@@ -2140,7 +2140,27 @@ function render() {
               if (p.recStart) phases.push({type:'rec', start:p.recStart, end:p.recEnd||p.recStart});
               if (p.contractEnd) phases.push({type:'contract', start:p.contractEnd, end:p.contractEnd});
 
+              // Adjust phases so they don't overlap: trim previous phase end to 1 day before next phase start
+              for (let i = 0; i < phases.length - 1; i++) {
+                if (phases[i].end >= phases[i+1].start) {
+                  const trimEnd = new Date(new Date(phases[i+1].start).getTime() - 86400000).toISOString().slice(0,10);
+                  phases[i].end = trimEnd > phases[i].start ? trimEnd : phases[i].start;
+                }
+              }
+
               let barsHTML = '';
+              // Render all phases as one continuous bar, then overlay individual colors
+              if (phases.length > 0) {
+                const firstStart = dayIdx(phases[0].start);
+                const lastEnd = dayIdx(phases[phases.length-1].end || phases[phases.length-1].start);
+                if (firstStart !== null && lastEnd !== null) {
+                  const fullLeft = (firstStart / totalDays * 100).toFixed(2);
+                  const fullWidth = (Math.max(1, lastEnd - firstStart + 1) / totalDays * 100).toFixed(2);
+                  // Background track (subtle)
+                  barsHTML += '<div style="position:absolute;left:'+fullLeft+'%;width:'+fullWidth+'%;height:22px;top:2px;background:#1e293b;border-radius:5px;z-index:0"></div>';
+                }
+              }
+
               phases.forEach((ph, pi) => {
                 const si = dayIdx(ph.start);
                 const ei = dayIdx(ph.end || ph.start);
@@ -2151,30 +2171,22 @@ function render() {
                 const isPast = ph.end && ph.end < today;
                 const op = isPast ? '0.55' : '1';
 
-                // Border radius: rounded on outer edges, flat where phases meet
-                const prevOverlap = pi > 0 && phases[pi-1].end >= ph.start;
-                const nextOverlap = pi < phases.length-1 && ph.end >= phases[pi+1].start;
-                const rL = prevOverlap ? '0' : '5px';
-                const rR = nextOverlap ? '0' : '5px';
+                // Round only the outermost edges
+                const isFirst = pi === 0;
+                const isLast = pi === phases.length - 1;
+                const rL = isFirst ? '5px' : '0';
+                const rR = isLast ? '5px' : '0';
 
-                // Phase label with days
+                // Phase label
                 const label = phaseShort[ph.type] + '(' + realDays + '일)';
-                const spanPx = (ei - si + 1) / totalDays * 100;
-                const showLabel = spanPx > 4; // only show if bar is wide enough
+                const spanPct = (ei - si + 1) / totalDays * 100;
+                const showLabel = spanPct > 4;
 
-                barsHTML += '<div style="position:absolute;left:'+leftPct+'%;width:'+widthPct+'%;height:22px;top:2px;background:'+phaseColors[ph.type]+';opacity:'+op+';border-radius:'+rL+' '+rR+' '+rR+' '+rL+';display:flex;align-items:center;justify-content:center;overflow:hidden;z-index:1" title="'+phaseNames[ph.type]+': '+ph.start+' ~ '+(ph.end||'?')+' ('+realDays+'일)">';
+                barsHTML += '<div style="position:absolute;left:'+leftPct+'%;width:'+widthPct+'%;height:22px;top:2px;background:'+phaseColors[ph.type]+';opacity:'+op+';border-radius:'+rL+' '+rR+' '+rR+' '+rL+';display:flex;align-items:center;justify-content:center;overflow:hidden;z-index:'+(pi+1)+'" title="'+phaseNames[ph.type]+': '+ph.start+' ~ '+(ph.end||'?')+' ('+realDays+'일)">';
                 if (showLabel) {
-                  barsHTML += '<span style="font-size:8px;color:#fff;font-weight:700;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,0.6);letter-spacing:-0.2px">'+label+'</span>';
+                  barsHTML += '<span style="font-size:8px;color:#fff;font-weight:700;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,0.5)">'+label+'</span>';
                 }
                 barsHTML += '</div>';
-
-                // Diagonal transition at overlap point
-                if (nextOverlap) {
-                  const overlapIdx = dayIdx(phases[pi+1].start);
-                  const oLeft = (overlapIdx / totalDays * 100).toFixed(2);
-                  const oWidth = (1.5 / totalDays * 100).toFixed(2);
-                  barsHTML += '<div style="position:absolute;left:'+oLeft+'%;width:'+oWidth+'%;height:22px;top:2px;background:linear-gradient(135deg,'+phaseColors[ph.type]+' 45%,'+phaseColors[phases[pi+1].type]+' 55%);z-index:3;border-radius:0"></div>';
-                }
               });
 
               // Today marker line
