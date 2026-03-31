@@ -2016,8 +2016,8 @@ function render() {
             // ─── 3-month window ───
             const selMonth = am ? parseInt(am.month) : (new Date().getMonth()+1);
             const selYearFull = am ? 2000+parseInt(am.year) : new Date().getFullYear();
-            const winStart = new Date(selYearFull, selMonth-2, 1);
-            const winEnd = new Date(selYearFull, selMonth+1, 0);
+            const winStart = new Date(selYearFull, selMonth-1, 1); // N월 1일
+            const winEnd = new Date(selYearFull, selMonth+2, 0); // N+2월 말일
             const winStartStr = winStart.toISOString().slice(0,10);
             const winEndStr = winEnd.toISOString().slice(0,10);
             const today = new Date().toISOString().slice(0,10);
@@ -2073,8 +2073,8 @@ function render() {
             });
 
             // ─── CSM filter buttons (지헌/보배/동수/혜원 only) ───
-            const csmKeywords = ['지헌','보배','동수','혜원'];
-            const sqList = [...allSquads].filter(sq => csmKeywords.some(k => sq.includes(k))).sort();
+            const allowedCSMs = ['이지헌','이보배','장동수','장혜원'];
+            const sqList = [...allSquads].filter(sq => allowedCSMs.includes(sq)).sort();
             const btnStyle = (active) => 'padding:5px 14px;border-radius:8px;font-size:11px;cursor:pointer;border:1px solid '+(active?'#818cf8':'#334155')+';background:'+(active?'#312e81':'transparent')+';color:'+(active?'#a5b4fc':'#94a3b8')+';font-weight:'+(active?'600':'400');
             const filterHTML = '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">'+
               '<button onclick="setCampCsmFilter(\'all\')" style="'+btnStyle(campCsmFilter==='all')+'">전체</button>'+
