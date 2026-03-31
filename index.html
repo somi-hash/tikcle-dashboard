@@ -1769,6 +1769,7 @@ let selectedMonthIdx = null;
 let currentTab = 'overview';
 let currentProdSub = 'count';
 let currentCsmSub = 'revenue';
+let campCsmFilter = 'all'; // 'all' or CSM name
 function render() {
   const data = processData(currentYear);
   const {monthly, waterfall, getPortfolio, getCSMData, getHeatmap, getProductAnalysis, getCSMCalendar, totalGP} = data;
@@ -2006,7 +2007,7 @@ function render() {
             }).join('')}
           </div>
         </div>
-        <!-- CSM Sub: Campaign Gantt (Day-level, Client→Month→Product) -->
+        <!-- CSM Sub: Campaign Gantt -->
         <div style="display:${currentCsmSub==='resource'?'block':'none'}">
           ${(()=>{
             if (!CAMPAIGN_DATA || CAMPAIGN_DATA.length === 0) {
@@ -2026,15 +2027,18 @@ function render() {
             const minD = (a,b) => !a ? b : !b ? a : (a < b ? a : b);
             const maxD = (a,b) => !a ? b : !b ? a : (a > b ? a : b);
 
-            // ─── Group: Client → YM → Product (merge dates per product) ───
-            const tree = {}; // tree[client][ym][product] = {dates..., counts...}
+            // ─── Group: Client → YM → Product, also track squads ───
+            const tree = {};
+            const allSquads = new Set();
             CAMPAIGN_DATA.forEach(d => {
               const cl = d.client || '미지정';
               const ym = (d.year||'')+'년 '+(String(d.month||'').padStart(2,'0'))+'월';
               const prod = d.product || d.campaign || '기타';
+              const sq = d.squad || '미지정';
+              allSquads.add(sq);
               if (!tree[cl]) tree[cl] = {};
               if (!tree[cl][ym]) tree[cl][ym] = {};
-              if (!tree[cl][ym][prod]) tree[cl][ym][prod] = {product:prod, client:cl, brand:d.brand, squad:d.squad, discStart:null, discEnd:null, shipStart:null, recStart:null, recEnd:null, contractEnd:null, actualRecEnd:null, tgtAccept:0, tgtShip:0, tgtRec:0, count:0};
+              if (!tree[cl][ym][prod]) tree[cl][ym][prod] = {product:prod, client:cl, brand:d.brand, squad:sq, discStart:null, discEnd:null, shipStart:null, recStart:null, recEnd:null, contractEnd:null, actualRecEnd:null, tgtRec:0, count:0};
               const p = tree[cl][ym][prod];
               p.count++;
               p.discStart = minD(p.discStart, d.discStart);
@@ -2044,34 +2048,42 @@ function render() {
               p.recEnd = maxD(p.recEnd, d.recEnd);
               p.contractEnd = maxD(p.contractEnd, d.contractEnd);
               p.actualRecEnd = maxD(p.actualRecEnd, d.actualRecEnd);
-              p.tgtAccept += (d.tgtAccept||0);
-              p.tgtShip += (d.tgtShip||0);
               p.tgtRec += (d.tgtRec||0);
             });
 
-            // ─── Filter to window overlap ───
+            // ─── Filter: window overlap + CSM filter ───
             const overlaps = (p) => {
               const dates = [p.discStart,p.discEnd,p.shipStart,p.recStart,p.recEnd,p.contractEnd,p.actualRecEnd].filter(Boolean);
               if (!dates.length) return false;
               return dates.reduce((a,b)=>a<b?a:b) <= winEndStr && dates.reduce((a,b)=>a>b?a:b) >= winStartStr;
             };
             const filteredTree = {};
-            let totalProducts = 0;
+            let totalRows = 0;
             Object.entries(tree).forEach(([cl, yms]) => {
               Object.entries(yms).forEach(([ym, prods]) => {
                 Object.entries(prods).forEach(([prod, p]) => {
-                  if (overlaps(p)) {
+                  if (overlaps(p) && (campCsmFilter === 'all' || p.squad === campCsmFilter)) {
                     if (!filteredTree[cl]) filteredTree[cl] = {};
                     if (!filteredTree[cl][ym]) filteredTree[cl][ym] = {};
                     filteredTree[cl][ym][prod] = p;
-                    totalProducts++;
+                    totalRows++;
                   }
                 });
               });
             });
 
-            if (totalProducts === 0) {
-              return '<div style="text-align:center;padding:40px;color:#64748b">이 기간에 해당하는 캠페인이 없습니다.</div>';
+            // ─── CSM filter buttons ───
+            const sqList = [...allSquads].sort();
+            const filterHTML = '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">'+
+              '<button onclick="setCampCsmFilter(\'all\')" style="padding:4px 12px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid '+(campCsmFilter==='all'?'#818cf8':'#334155')+';background:'+(campCsmFilter==='all'?'#312e81':'transparent')+';color:'+(campCsmFilter==='all'?'#a5b4fc':'#94a3b8')+'">전체</button>'+
+              sqList.map(sq => {
+                const active = campCsmFilter === sq;
+                return '<button onclick="setCampCsmFilter(\''+sq.replace(/'/g,"\\'")+'\')" style="padding:4px 12px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid '+(active?'#818cf8':'#334155')+';background:'+(active?'#312e81':'transparent')+';color:'+(active?'#a5b4fc':'#94a3b8')+'">'+sq+'</button>';
+              }).join('')+
+            '</div>';
+
+            if (totalRows === 0) {
+              return filterHTML + '<div style="text-align:center;padding:40px;color:#64748b">이 기간에 해당하는 캠페인이 없습니다.</div>';
             }
 
             // ─── Day columns ───
@@ -2110,7 +2122,7 @@ function render() {
               dayHeaderHTML += '<th style="'+st+'">'+gd.day+'</th>';
             });
 
-            // ─── Helper: render day cells for a product row ───
+            // ─── Helper: render day cells ───
             const renderDayCells = (p) => {
               const phases = [];
               if (p.discStart) phases.push({type:'disc', start:p.discStart, end:p.discEnd||p.shipStart||p.discStart});
@@ -2138,41 +2150,44 @@ function render() {
               }).join('');
             };
 
-            // ─── Build rows: Client → YM → Product ───
+            // ─── Build rows: Client+Month in one row, extra rows only for multi-product ───
             let bodyHTML = '';
             const sortedClients = Object.keys(filteredTree).sort();
             sortedClients.forEach(cl => {
               const yms = filteredTree[cl];
-              const ymCount = Object.values(yms).reduce((s,prods) => s + Object.keys(prods).length, 0);
-              // Client header row
-              bodyHTML += '<tr><td colspan="'+(totalDays+1)+'" style="background:#0f172a;padding:7px 6px;font-size:12px;font-weight:600;color:#e2e8f0;border-top:1px solid #334155">'+cl+' <span style="color:#64748b;font-weight:400;font-size:10px">'+ymCount+'건</span></td></tr>';
-
               const sortedYMs = Object.keys(yms).sort();
               sortedYMs.forEach(ym => {
                 const prods = yms[ym];
-                const prodList = Object.values(prods).sort((a,b) => (b.tgtRec+b.tgtShip) - (a.tgtRec+a.tgtShip));
-                // Month sub-header
-                bodyHTML += '<tr><td colspan="'+(totalDays+1)+'" style="padding:4px 6px 4px 16px;font-size:11px;color:#818cf8;font-weight:500;background:#0c1525">'+ym+'</td></tr>';
+                const prodList = Object.values(prods).sort((a,b) => b.tgtRec - a.tgtRec);
+                const firstProd = prodList[0];
+                const recLabel = firstProd.tgtRec ? ' <span style="color:#f59e0b;font-size:9px">회수 '+firstProd.tgtRec.toLocaleString()+'</span>' : '';
 
-                prodList.forEach(p => {
-                  // Product label with counts
-                  const tgts = [];
-                  if (p.tgtAccept) tgts.push('수락 '+p.tgtAccept.toLocaleString());
-                  if (p.tgtShip) tgts.push('배송 '+p.tgtShip.toLocaleString());
-                  if (p.tgtRec) tgts.push('회수 '+p.tgtRec.toLocaleString());
-                  const tgtText = tgts.length > 0 ? ' <span style="color:#64748b;font-size:9px">('+tgts.join(', ')+')</span>' : '';
-                  const countBadge = p.count > 1 ? ' <span style="background:#1e293b;color:#94a3b8;font-size:9px;padding:1px 4px;border-radius:3px">×'+p.count+'</span>' : '';
+                // First row: client + month + first product + timeline
+                bodyHTML += '<tr style="border-top:1px solid #1e293b">';
+                bodyHTML += '<td style="font-size:11px;padding:3px 6px;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis">';
+                bodyHTML += '<span style="color:#e2e8f0;font-weight:600">'+cl+'</span>';
+                bodyHTML += ' <span style="color:#818cf8;font-size:10px">'+ym+'</span>';
+                bodyHTML += ' <span style="color:#94a3b8;font-size:10px">'+firstProd.product+'</span>';
+                bodyHTML += recLabel;
+                bodyHTML += '</td>';
+                bodyHTML += renderDayCells(firstProd);
+                bodyHTML += '</tr>';
 
-                  bodyHTML += '<tr><td style="font-size:10px;padding:2px 4px 2px 28px;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis;color:#cbd5e1" title="'+p.product+'">'+p.product+countBadge+tgtText+'</td>';
+                // Additional rows for extra products (no client/month label)
+                for (let i = 1; i < prodList.length; i++) {
+                  const p = prodList[i];
+                  const pRecLabel = p.tgtRec ? ' <span style="color:#f59e0b;font-size:9px">회수 '+p.tgtRec.toLocaleString()+'</span>' : '';
+                  bodyHTML += '<tr>';
+                  bodyHTML += '<td style="font-size:10px;padding:2px 6px 2px 24px;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;color:#94a3b8">'+p.product+pRecLabel+'</td>';
                   bodyHTML += renderDayCells(p);
                   bodyHTML += '</tr>';
-                });
+                }
               });
             });
 
-            return legendHTML +
-              '<p class="sub" style="margin-bottom:8px">캠페인 현황 · '+winLabel+' · 가로 스크롤로 전체 일정 확인</p>' +
-              '<div class="cal-wrap" style="max-height:600px;overflow:auto"><table class="cal-table" style="border-collapse:collapse"><thead><tr><th style="min-width:220px"></th>'+monthHeaderHTML+'</tr><tr><th style="min-width:220px;font-size:10px;color:#64748b">고객사 / 상품</th>'+dayHeaderHTML+'</tr></thead><tbody>'+bodyHTML+'</tbody></table></div>';
+            return filterHTML + legendHTML +
+              '<p class="sub" style="margin-bottom:8px">캠페인 현황 · '+winLabel+' · '+totalRows+'건</p>' +
+              '<div class="cal-wrap" style="max-height:600px;overflow:auto"><table class="cal-table" style="border-collapse:collapse"><thead><tr><th style="min-width:260px"></th>'+monthHeaderHTML+'</tr><tr><th style="min-width:260px;font-size:10px;color:#64748b">고객사 / 상품</th>'+dayHeaderHTML+'</tr></thead><tbody>'+bodyHTML+'</tbody></table></div>';
           })()}
         </div>
       </div>
@@ -2324,6 +2339,7 @@ function setMonth(idx) { selectedMonthIdx=parseInt(idx); render(); }
 function switchTab(tab) { currentTab=tab; render(); }
 function setProdSub(sub) { currentProdSub=sub; render(); }
 function setCsmSub(sub) { currentCsmSub=sub; render(); }
+function setCampCsmFilter(sq) { campCsmFilter=sq; render(); }
 function toggleCSM(idx) {
   const el = document.getElementById('csm-list-'+idx);
   if(el) el.classList.toggle('show');
