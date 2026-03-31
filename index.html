@@ -2027,19 +2027,21 @@ function render() {
             const minD = (a,b) => !a ? b : !b ? a : (a < b ? a : b);
             const maxD = (a,b) => !a ? b : !b ? a : (a > b ? a : b);
 
-            // ─── Group: Client → YM → Product, also track squads ───
-            const tree = {};
+            // ─── Group: Client → Brand → YM → Product, also track squads ───
+            const tree = {}; // tree[client][brand][ym][product]
             const allSquads = new Set();
             CAMPAIGN_DATA.forEach(d => {
               const cl = d.client || '미지정';
+              const br = d.brand || '—';
               const ym = (d.year||'')+'년 '+(String(d.month||'').padStart(2,'0'))+'월';
               const prod = d.product || d.campaign || '기타';
               const sq = d.squad || '미지정';
               allSquads.add(sq);
               if (!tree[cl]) tree[cl] = {};
-              if (!tree[cl][ym]) tree[cl][ym] = {};
-              if (!tree[cl][ym][prod]) tree[cl][ym][prod] = {product:prod, client:cl, brand:d.brand, squad:sq, discStart:null, discEnd:null, shipStart:null, recStart:null, recEnd:null, contractEnd:null, actualRecEnd:null, tgtRec:0, count:0};
-              const p = tree[cl][ym][prod];
+              if (!tree[cl][br]) tree[cl][br] = {};
+              if (!tree[cl][br][ym]) tree[cl][br][ym] = {};
+              if (!tree[cl][br][ym][prod]) tree[cl][br][ym][prod] = {product:prod, client:cl, brand:br, squad:sq, discStart:null, discEnd:null, shipStart:null, recStart:null, recEnd:null, contractEnd:null, actualRecEnd:null, tgtRec:0, count:0};
+              const p = tree[cl][br][ym][prod];
               p.count++;
               p.discStart = minD(p.discStart, d.discStart);
               p.discEnd = maxD(p.discEnd, d.discEnd);
@@ -2057,17 +2059,20 @@ function render() {
               if (!dates.length) return false;
               return dates.reduce((a,b)=>a<b?a:b) <= winEndStr && dates.reduce((a,b)=>a>b?a:b) >= winStartStr;
             };
-            const filteredTree = {};
+            const filteredTree = {}; // filteredTree[client][brand][ym][product]
             let totalRows = 0;
-            Object.entries(tree).forEach(([cl, yms]) => {
-              Object.entries(yms).forEach(([ym, prods]) => {
-                Object.entries(prods).forEach(([prod, p]) => {
-                  if (overlaps(p) && (campCsmFilter === 'all' || p.squad === campCsmFilter)) {
-                    if (!filteredTree[cl]) filteredTree[cl] = {};
-                    if (!filteredTree[cl][ym]) filteredTree[cl][ym] = {};
-                    filteredTree[cl][ym][prod] = p;
-                    totalRows++;
-                  }
+            Object.entries(tree).forEach(([cl, brands]) => {
+              Object.entries(brands).forEach(([br, yms]) => {
+                Object.entries(yms).forEach(([ym, prods]) => {
+                  Object.entries(prods).forEach(([prod, p]) => {
+                    if (overlaps(p) && (campCsmFilter === 'all' || p.squad === campCsmFilter)) {
+                      if (!filteredTree[cl]) filteredTree[cl] = {};
+                      if (!filteredTree[cl][br]) filteredTree[cl][br] = {};
+                      if (!filteredTree[cl][br][ym]) filteredTree[cl][br][ym] = {};
+                      filteredTree[cl][br][ym][prod] = p;
+                      totalRows++;
+                    }
+                  });
                 });
               });
             });
@@ -2149,52 +2154,48 @@ function render() {
               }).join('');
             };
 
-            // ─── Build rows: Client shown once, then month+product per row ───
+            // ─── Build rows: Client → Brand → Month → Product(count) ───
             let bodyHTML = '';
+            const W_CL = 100, W_BR = 80, W_YM = 58, W_PR = 'auto';
             const sortedClients = Object.keys(filteredTree).sort();
             sortedClients.forEach(cl => {
-              const yms = filteredTree[cl];
-              const sortedYMs = Object.keys(yms).sort();
+              const brands = filteredTree[cl];
               let isFirstRowForClient = true;
 
-              sortedYMs.forEach(ym => {
-                const prods = yms[ym];
-                const prodList = Object.values(prods).sort((a,b) => b.tgtRec - a.tgtRec);
-                const firstProd = prodList[0];
-                const recLabel = firstProd.tgtRec ? ' <span style="color:#f59e0b;font-size:9px">회수 '+firstProd.tgtRec.toLocaleString()+'</span>' : '';
+              Object.keys(brands).sort().forEach(br => {
+                const yms = brands[br];
+                let isFirstRowForBrand = true;
 
-                // First row of this month: show client name only if first time
-                bodyHTML += '<tr style="border-top:1px solid '+(isFirstRowForClient?'#334155':'#1e293b')+'">';
-                bodyHTML += '<td style="font-size:11px;padding:3px 6px;white-space:nowrap">';
-                bodyHTML += '<span style="display:inline-block;min-width:110px;color:#e2e8f0;font-weight:600">'+(isFirstRowForClient ? cl : '')+'</span>';
-                bodyHTML += '<span style="display:inline-block;min-width:62px;color:#818cf8;font-size:10px">'+ym+'</span>';
-                bodyHTML += '<span style="color:#94a3b8;font-size:10px">'+firstProd.product+'</span>';
-                bodyHTML += recLabel;
-                bodyHTML += '</td>';
-                bodyHTML += renderDayCells(firstProd);
-                bodyHTML += '</tr>';
-                isFirstRowForClient = false;
+                Object.keys(yms).sort().forEach(ym => {
+                  const prods = yms[ym];
+                  const prodList = Object.values(prods).sort((a,b) => b.tgtRec - a.tgtRec);
+                  let isFirstRowForYM = true;
 
-                // Additional products for same client+month
-                for (let i = 1; i < prodList.length; i++) {
-                  const p = prodList[i];
-                  const pRecLabel = p.tgtRec ? ' <span style="color:#f59e0b;font-size:9px">회수 '+p.tgtRec.toLocaleString()+'</span>' : '';
-                  bodyHTML += '<tr>';
-                  bodyHTML += '<td style="font-size:10px;padding:2px 6px;white-space:nowrap">';
-                  bodyHTML += '<span style="display:inline-block;min-width:110px"></span>';
-                  bodyHTML += '<span style="display:inline-block;min-width:62px"></span>';
-                  bodyHTML += '<span style="color:#94a3b8">'+p.product+'</span>';
-                  bodyHTML += pRecLabel;
-                  bodyHTML += '</td>';
-                  bodyHTML += renderDayCells(p);
-                  bodyHTML += '</tr>';
-                }
+                  prodList.forEach(p => {
+                    const prodLabel = p.product + (p.tgtRec ? ' ('+p.tgtRec.toLocaleString()+')' : '');
+                    const borderStyle = isFirstRowForClient ? '#334155' : isFirstRowForBrand ? '#1e293b' : '#1e293b44';
+
+                    bodyHTML += '<tr style="border-top:1px solid '+borderStyle+'">';
+                    bodyHTML += '<td style="font-size:11px;padding:3px 6px;white-space:nowrap">';
+                    bodyHTML += '<span style="display:inline-block;min-width:'+W_CL+'px;color:#e2e8f0;font-weight:600">'+(isFirstRowForClient ? cl : '')+'</span>';
+                    bodyHTML += '<span style="display:inline-block;min-width:'+W_BR+'px;color:#cbd5e1;font-size:10px">'+(isFirstRowForBrand ? br : '')+'</span>';
+                    bodyHTML += '<span style="display:inline-block;min-width:'+W_YM+'px;color:#818cf8;font-size:10px">'+(isFirstRowForYM ? ym : '')+'</span>';
+                    bodyHTML += '<span style="color:#94a3b8;font-size:10px">'+prodLabel+'</span>';
+                    bodyHTML += '</td>';
+                    bodyHTML += renderDayCells(p);
+                    bodyHTML += '</tr>';
+
+                    isFirstRowForClient = false;
+                    isFirstRowForBrand = false;
+                    isFirstRowForYM = false;
+                  });
+                });
               });
             });
 
             return filterHTML + legendHTML +
               '<p class="sub" style="margin-bottom:8px">캠페인 현황 · '+winLabel+' · '+totalRows+'건</p>' +
-              '<div style="overflow-x:auto"><table class="cal-table" style="border-collapse:collapse"><thead style="position:sticky;top:0;z-index:2;background:#0f172a"><tr><th style="min-width:280px"></th>'+monthHeaderHTML+'</tr><tr><th style="min-width:280px;font-size:10px;color:#64748b">고객사 / 상품</th>'+dayHeaderHTML+'</tr></thead><tbody>'+bodyHTML+'</tbody></table></div>';
+              '<div style="overflow-x:auto"><table class="cal-table" style="border-collapse:collapse"><thead style="position:sticky;top:0;z-index:2;background:#0f172a"><tr><th style="min-width:340px"></th>'+monthHeaderHTML+'</tr><tr><th style="min-width:340px;font-size:10px;color:#64748b">고객사 / 브랜드 / 월 / 상품</th>'+dayHeaderHTML+'</tr></thead><tbody>'+bodyHTML+'</tbody></table></div>';
           })()}
         </div>
       </div>
