@@ -659,7 +659,10 @@ function parseSettlementResponse(response) {
     const iPayDue = findColIndex(cols, ['입금예정일']);
     const iPaid = findColIndex(cols, ['입금여부']);
 
-    if (typeof dbg === 'function') dbg('📋 매출정산 컬럼: ym='+iYM+' camp='+iCamp+' client='+iClient+' settle='+iSettle+' taxEx='+iTaxEx+' taxIn='+iTaxIn+' sebal='+iSebal+' payDue='+iPayDue+' paid='+iPaid);
+    if (typeof dbg === 'function') {
+      dbg('📋 매출정산 헤더('+cols.length+'열): '+cols.slice(0,20).map((c,i)=>i+':'+((c.label||'').trim()||'?')).join(', '));
+      dbg('📋 매출정산 컬럼매핑: ym='+iYM+' camp='+iCamp+' client='+iClient+' settle='+iSettle+' taxEx='+iTaxEx+' taxIn='+iTaxIn+' sebal='+iSebal+' payDue='+iPayDue+' paid='+iPaid);
+    }
 
     if (iYM < 0 || iClient < 0) { if (typeof dbg === 'function') dbg('❌ 매출정산 필수 열 누락'); return null; }
 
@@ -1204,15 +1207,19 @@ async function loadData(showStatus) {
       const found = await loadProductData(sheetId);
       if (found) { render(); }
     }
-    // 3) 매출정산(세금계산서) 시트 로드
+    // 3) 매출정산(세금계산서) 시트 로드 (raw gviz 응답 필요 → loadJSONP 직접 사용)
     if (mainLoaded) {
       dbg('── 3) 매출정산 시트(gid='+TAX_GID+') 로드');
-      const taxResponse = await fetchViaJSONP(sheetId, TAX_GID);
-      if (taxResponse) {
-        const taxData = parseSettlementResponse(taxResponse);
+      const taxUrl = 'https://docs.google.com/spreadsheets/d/'+sheetId+'/gviz/tq?gid='+TAX_GID;
+      const rawTaxResp = await loadJSONP(taxUrl, 15000);
+      if (rawTaxResp && rawTaxResp.table) {
+        const taxData = parseSettlementResponse(rawTaxResp);
         if (taxData && taxData.length > 0) {
           TAX_DATA = taxData;
           dbg('✅ 세금계산서 데이터 '+TAX_DATA.length+'건 로드');
+          render();
+        } else {
+          dbg('⚠️ 매출정산 파싱 결과 없음');
         }
       } else {
         dbg('⚠️ 매출정산 JSONP 실패 → 스킵');
