@@ -2245,9 +2245,78 @@ function render() {
               });
             });
 
+            // ─── 해당 월 회수 마감 예정 캠페인 ───
+            const selYM = String(selYearFull%100).padStart(2,'0')+'년 '+String(selMonth).padStart(2,'0')+'월';
+            const selMonthStart = new Date(selYearFull, selMonth-1, 1).toISOString().slice(0,10);
+            const selMonthEnd = new Date(selYearFull, selMonth, 0).toISOString().slice(0,10);
+
+            // Deduplicate campaigns by name, merge across months
+            const campByName = {};
+            CAMPAIGN_DATA.forEach(d => {
+              const sq = d.squad || '미지정';
+              if (campCsmFilter !== 'all' && sq !== campCsmFilter) return;
+              const key = d.campaign + '||' + d.client;
+              if (!campByName[key]) campByName[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, squad:sq, recEnd:null, recStart:null, discStart:null, shipStart:null, contractEnd:null, tgtRec:0, hasDates:false};
+              const c = campByName[key];
+              c.recEnd = maxD(c.recEnd, d.recEnd);
+              c.recStart = minD(c.recStart, d.recStart);
+              c.discStart = minD(c.discStart, d.discStart);
+              c.shipStart = minD(c.shipStart, d.shipStart);
+              c.contractEnd = maxD(c.contractEnd, d.contractEnd);
+              c.tgtRec = Math.max(c.tgtRec, d.tgtRec||0);
+              if (d.discStart || d.shipStart || d.recStart || d.recEnd || d.contractEnd) c.hasDates = true;
+            });
+
+            // 1) 회수 마감 예정: recEnd가 해당 월에 속하는 캠페인
+            const recDueCamps = Object.values(campByName).filter(c =>
+              c.recEnd && c.recEnd >= selMonthStart && c.recEnd <= selMonthEnd
+            ).sort((a,b) => (a.recEnd||'').localeCompare(b.recEnd||''));
+
+            let recDueHTML = '';
+            if (recDueCamps.length > 0) {
+              recDueHTML = '<div style="margin-top:24px;padding:16px;background:#0c1525;border:1px solid #1e293b;border-radius:10px">' +
+                '<h3 style="font-size:13px;color:#f59e0b;margin-bottom:10px">📦 '+selMonth+'월 회수 마감 예정 ('+recDueCamps.length+'건)</h3>' +
+                '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
+                '<thead><tr><th style="text-align:left;color:#64748b;padding:4px 8px;border-bottom:1px solid #1e293b">고객사</th><th style="text-align:left;color:#64748b;padding:4px 8px;border-bottom:1px solid #1e293b">브랜드</th><th style="text-align:left;color:#64748b;padding:4px 8px;border-bottom:1px solid #1e293b">상품</th><th style="text-align:left;color:#64748b;padding:4px 8px;border-bottom:1px solid #1e293b">담당</th><th style="text-align:right;color:#64748b;padding:4px 8px;border-bottom:1px solid #1e293b">목표 회수</th><th style="text-align:right;color:#64748b;padding:4px 8px;border-bottom:1px solid #1e293b">회수 마감</th></tr></thead><tbody>' +
+                recDueCamps.map(c =>
+                  '<tr style="border-bottom:1px solid #1e293b44"><td style="padding:5px 8px;color:#e2e8f0;font-weight:500">'+c.client+'</td><td style="padding:5px 8px;color:#94a3b8">'+c.brand+'</td><td style="padding:5px 8px;color:#94a3b8">'+c.product+'</td><td style="padding:5px 8px;color:#94a3b8">'+c.squad+'</td><td style="padding:5px 8px;text-align:right;color:#f59e0b;font-weight:600">'+(c.tgtRec?c.tgtRec.toLocaleString():'—')+'</td><td style="padding:5px 8px;text-align:right;color:#cbd5e1">'+c.recEnd+'</td></tr>'
+                ).join('') +
+                '</tbody></table></div>';
+            }
+
+            // 2) 해당 월에 속하지만 타임라인 없는 캠페인
+            const noTimelineCamps = CAMPAIGN_DATA.filter(d => {
+              const sq = d.squad || '미지정';
+              if (campCsmFilter !== 'all' && sq !== campCsmFilter) return false;
+              const yr = String(d.year||'').padStart(2,'0');
+              const mo = String(d.month||'').padStart(2,'0');
+              const dym = yr+'년 '+mo+'월';
+              if (dym !== selYM) return false;
+              return !d.discStart && !d.shipStart && !d.recStart && !d.recEnd && !d.contractEnd;
+            });
+            // Deduplicate
+            const noTLMap = {};
+            noTimelineCamps.forEach(d => {
+              const key = d.campaign+'||'+d.client;
+              if (!noTLMap[key]) noTLMap[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, squad:d.squad||'미지정'};
+            });
+            const noTLList = Object.values(noTLMap).sort((a,b) => a.client.localeCompare(b.client));
+
+            let noTLHTML = '';
+            if (noTLList.length > 0) {
+              noTLHTML = '<div style="margin-top:16px;padding:16px;background:#0c1525;border:1px solid #1e293b;border-radius:10px">' +
+                '<h3 style="font-size:13px;color:#64748b;margin-bottom:10px">⚠️ '+selMonth+'월 타임라인 미확인 ('+noTLList.length+'건)</h3>' +
+                '<div style="display:flex;flex-wrap:wrap;gap:8px">' +
+                noTLList.map(c =>
+                  '<span style="font-size:11px;padding:4px 10px;background:#1e293b;border-radius:6px;color:#94a3b8">'+c.client+' <span style="color:#64748b">'+c.brand+'</span> <span style="color:#475569">'+c.product+'</span> <span style="color:#475569;font-size:9px">'+c.squad+'</span></span>'
+                ).join('') +
+                '</div></div>';
+            }
+
             return filterHTML + legendHTML +
               '<p class="sub" style="margin-bottom:8px">캠페인 현황 · '+winLabel+' · '+totalRows+'건</p>' +
-              '<table style="width:100%;border-collapse:collapse;table-layout:fixed"><colgroup><col style="width:340px"><col span="'+totalDays+'"></colgroup><thead style="position:sticky;top:0;z-index:5;background:#0f172a"><tr><th style="width:340px"></th>'+monthHeaderHTML+'</tr><tr><th style="width:340px;font-size:10px;color:#64748b;text-align:left;padding-left:6px">고객사 / 브랜드 / 월 / 상품</th>'+dayHeaderHTML+'</tr></thead><tbody>'+bodyHTML+'</tbody></table>';
+              '<table style="width:100%;border-collapse:collapse;table-layout:fixed"><colgroup><col style="width:340px"><col span="'+totalDays+'"></colgroup><thead style="position:sticky;top:0;z-index:5;background:#0f172a"><tr><th style="width:340px"></th>'+monthHeaderHTML+'</tr><tr><th style="width:340px;font-size:10px;color:#64748b;text-align:left;padding-left:6px">고객사 / 브랜드 / 월 / 상품</th>'+dayHeaderHTML+'</tr></thead><tbody>'+bodyHTML+'</tbody></table>' +
+              recDueHTML + noTLHTML;
           })()}
         </div>
       </div>
