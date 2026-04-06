@@ -2994,19 +2994,33 @@ function closeCommentPanel() {
 // ── 댓글 불러오기 ───────────────────────────────────────────
 async function loadComments(customerName) {
   const listEl = document.getElementById('comment-list');
-  listEl.innerHTML = '<div class="comment-loading">불러오는 중...</div>';
- 
+
+  // 캐시 있으면 즉시 표시 후 백그라운드 갱신
+  if (commentCache[customerName]) {
+    renderComments(commentCache[customerName]);
+  } else {
+    listEl.innerHTML = '<div class="comment-loading">불러오는 중...</div>';
+  }
+
   try {
     const url = APPS_SCRIPT_URL + '?customer=' + encodeURIComponent(customerName);
-    const res = await fetch(url);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    const res = await fetch(url, { redirect: 'follow', signal: controller.signal });
+    clearTimeout(timer);
     const comments = await res.json();
- 
+
     commentCache[customerName] = comments;
     renderComments(comments);
     updateRowBadge(customerName, comments.length);
- 
+
   } catch (err) {
-    listEl.innerHTML = '<div class="comment-empty"><div class="icon">⚠️</div>불러오기 실패<br><small>' + err.message + '</small></div>';
+    if (commentCache[customerName]) {
+      // 캐시 데이터 유지 (갱신 실패만 알림)
+      renderComments(commentCache[customerName]);
+    } else {
+      listEl.innerHTML = '<div class="comment-empty"><div class="icon">⚠️</div>불러오기 실패<br><small>' + err.message + '</small></div>';
+    }
   }
 }
  
@@ -3046,8 +3060,12 @@ async function submitComment() {
   btn.textContent = '저장 중...';
  
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
     const res = await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
+      redirect: 'follow',
+      signal: controller.signal,
       body: JSON.stringify({
         customer: currentCustomer,
         category: category,
@@ -3055,6 +3073,7 @@ async function submitComment() {
         author:   author
       })
     });
+    clearTimeout(timer);
     const result = await res.json();
  
     if (result.success) {
@@ -3123,3 +3142,6 @@ document.addEventListener('keydown', e => {
  
 </body>
 </html>
+
+
+일단 니말대로 수정한거긴 한데, 자 이거 바탕으로 니가 직접 더 수정해볼래?
