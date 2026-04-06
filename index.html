@@ -371,7 +371,7 @@ function unlockDashboard() {
     document.getElementById('lockScreen').classList.add('fade-out');
     document.getElementById('app').style.display = '';
     setTimeout(() => { document.getElementById('lockScreen').remove(); }, 500);
-    if (typeof loadData === 'function') loadData(true).then(()=>{if(typeof updateDebugPanel==='function')updateDebugPanel();if(typeof updateJsonLinks==='function')updateJsonLinks();});
+    if (typeof loadData === 'function') loadData(true).then(()=>{if(typeof updateDebugPanel==='function')updateDebugPanel();if(typeof updateJsonLinks==='function')updateJsonLinks();if(typeof preloadAllComments==='function')preloadAllComments();});
   } else {
     document.getElementById('pwInput').classList.add('shake');
     document.getElementById('pwError').textContent = '비밀번호가 올바르지 않습니다';
@@ -2782,6 +2782,8 @@ function render() {
       });
     }
   });
+  // 새로고침 후에도 뱃지 즉시 복원
+  restoreBadgeCounts();
 }
 function setYear(y) { currentYear=y; selectedMonthIdx=null; render(); }
 function setMonth(idx) { selectedMonthIdx=parseInt(idx); render(); }
@@ -2974,6 +2976,47 @@ const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyd55TzJ2wTBVeF
  
 let currentCustomer = '';
 let commentCache = {};   // { 고객사명: [comments] }
+
+// ── 댓글 카운트 localStorage 저장/복원 ─────────────────────
+const BADGE_CACHE_KEY = 'tc_comment_counts';
+function saveBadgeCounts() {
+  const counts = {};
+  Object.entries(commentCache).forEach(([k, v]) => { counts[k] = v.length; });
+  try { localStorage.setItem(BADGE_CACHE_KEY, JSON.stringify(counts)); } catch(e) {}
+}
+function restoreBadgeCounts() {
+  try {
+    const raw = localStorage.getItem(BADGE_CACHE_KEY);
+    if (!raw) return;
+    const counts = JSON.parse(raw);
+    Object.entries(counts).forEach(([name, cnt]) => {
+      if (cnt > 0) updateRowBadge(name, cnt);
+    });
+  } catch(e) {}
+}
+
+// ── 전체 댓글 백그라운드 프리로드 ──────────────────────────
+async function preloadAllComments() {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    const res = await fetch(APPS_SCRIPT_URL, { redirect: 'follow', signal: controller.signal });
+    clearTimeout(timer);
+    const all = await res.json();
+    if (!Array.isArray(all)) return;
+    // 고객사별로 분류
+    const grouped = {};
+    all.forEach(c => {
+      if (!c.customer) return;
+      if (!grouped[c.customer]) grouped[c.customer] = [];
+      grouped[c.customer].push(c);
+    });
+    commentCache = grouped;
+    saveBadgeCounts();
+    // 뱃지 전체 업데이트
+    Object.entries(grouped).forEach(([name, arr]) => updateRowBadge(name, arr.length));
+  } catch(e) { /* 백그라운드 실패 조용히 무시 */ }
+}
  
 // ── 패널 열기 ───────────────────────────────────────────────
 function openCommentPanel(customerName, brandName) {
@@ -3013,6 +3056,7 @@ async function loadComments(customerName) {
     commentCache[customerName] = comments;
     renderComments(comments);
     updateRowBadge(customerName, comments.length);
+    saveBadgeCounts();
 
   } catch (err) {
     if (commentCache[customerName]) {
@@ -3143,3 +3187,5 @@ document.addEventListener('keydown', e => {
 </body>
 </html>
 
+
+일단 니말대로 수정한거긴 한데, 자 이거 바탕으로 니가 직접 더 수정해볼래?
