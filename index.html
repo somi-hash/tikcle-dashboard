@@ -1391,29 +1391,33 @@ async function loadData(showStatus) {
         rebuildGlobals(); render(); mainLoaded = true;
       } else { dbg('❌ CSV 메인 로드 실패'); }
     }
-    // 2) 메인 로드 성공 & 상품 데이터 없으면 → cashflow 시트 탐색
-    if (mainLoaded && Object.keys(PRODUCT_MAP).length === 0) {
-      dbg('── 2) 상품 데이터 없음 → cashflow 시트 탐색');
-      const found = await loadProductData(sheetId);
-      if (found) { render(); }
-    }
-    // 3) 매출정산(세금계산서) 시트 로드 (raw gviz 응답 필요 → loadJSONP 직접 사용)
+    // 2+3) 상품 데이터 + 매출정산 병렬 로드
     if (mainLoaded) {
-      dbg('── 3) 매출정산 시트(gid='+TAX_GID+') 로드');
-      const taxUrl = 'https://docs.google.com/spreadsheets/d/'+sheetId+'/gviz/tq?gid='+TAX_GID;
-      const rawTaxResp = await loadJSONP(taxUrl, 15000);
-      if (rawTaxResp && rawTaxResp.table) {
-        const taxData = parseSettlementResponse(rawTaxResp);
-        if (taxData && taxData.length > 0) {
-          TAX_DATA = taxData;
-          dbg('✅ 세금계산서 데이터 '+TAX_DATA.length+'건 로드');
-          render();
-        } else {
-          dbg('⚠️ 매출정산 파싱 결과 없음');
-        }
-      } else {
-        dbg('⚠️ 매출정산 JSONP 실패 → 스킵');
+      const jobs = [];
+
+      if (Object.keys(PRODUCT_MAP).length === 0) {
+        dbg('── 2) 상품 데이터 없음 → cashflow 시트 병렬 탐색');
+        jobs.push(
+          loadProductData(sheetId).then(found => { if (found) render(); })
+        );
       }
+
+      dbg('── 3) 매출정산 시트(gid='+TAX_GID+') 병렬 로드');
+      const taxUrl = 'https://docs.google.com/spreadsheets/d/'+sheetId+'/gviz/tq?gid='+TAX_GID;
+      jobs.push(
+        loadJSONP(taxUrl, 15000).then(rawTaxResp => {
+          if (rawTaxResp && rawTaxResp.table) {
+            const taxData = parseSettlementResponse(rawTaxResp);
+            if (taxData && taxData.length > 0) {
+              TAX_DATA = taxData;
+              dbg('✅ 세금계산서 데이터 '+TAX_DATA.length+'건 로드');
+              render();
+            } else { dbg('⚠️ 매출정산 파싱 결과 없음'); }
+          } else { dbg('⚠️ 매출정산 JSONP 실패 → 스킵'); }
+        })
+      );
+
+      await Promise.all(jobs);
     }
     if (!mainLoaded) {
       dbg('⚠️ 모든 방법 실패 → fallback 데이터 사용');
@@ -3271,4 +3275,3 @@ document.addEventListener('keydown', e => {
  
 </body>
 </html>
-
