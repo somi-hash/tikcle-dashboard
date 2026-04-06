@@ -8,6 +8,167 @@
 <script src="https://www.gstatic.com/charts/loader.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+ 
+/* ── 고객사 행 클릭 커서 ── */
+.portfolio-row { cursor: pointer; transition: background 0.15s; }
+.portfolio-row:hover { background: #1e293b !important; }
+ 
+/* ── 코멘트 슬라이드 패널 ── */
+#comment-panel {
+  position: fixed;
+  top: 0; right: -480px;
+  width: 460px; height: 100vh;
+  background: #0f172a;
+  border-left: 1px solid #334155;
+  box-shadow: -8px 0 32px rgba(0,0,0,0.5);
+  z-index: 9999;
+  display: flex; flex-direction: column;
+  transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: 'Inter', sans-serif;
+}
+#comment-panel.open { right: 0; }
+ 
+/* ── 패널 헤더 ── */
+#comment-panel-header {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #1e293b;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0;
+}
+#comment-panel-title {
+  font-size: 15px; font-weight: 700; color: #f8fafc;
+}
+#comment-panel-sub {
+  font-size: 12px; color: #64748b; margin-top: 3px;
+}
+#comment-panel-close {
+  background: none; border: none;
+  color: #64748b; font-size: 20px;
+  cursor: pointer; padding: 4px 8px;
+  border-radius: 6px; line-height: 1;
+  transition: all 0.15s;
+}
+#comment-panel-close:hover { background: #1e293b; color: #f8fafc; }
+ 
+/* ── 댓글 목록 영역 ── */
+#comment-list {
+  flex: 1; overflow-y: auto;
+  padding: 16px 24px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+#comment-list::-webkit-scrollbar { width: 4px; }
+#comment-list::-webkit-scrollbar-track { background: transparent; }
+#comment-list::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+ 
+/* ── 개별 댓글 카드 ── */
+.comment-card {
+  background: #1e293b;
+  border-radius: 10px;
+  padding: 14px 16px;
+  border-left: 3px solid #4f46e5;
+}
+.comment-card[data-category="이슈"]  { border-left-color: #ef4444; }
+.comment-card[data-category="업셀"]  { border-left-color: #22c55e; }
+.comment-card[data-category="미팅"]  { border-left-color: #3b82f6; }
+.comment-card[data-category="기타"]  { border-left-color: #94a3b8; }
+ 
+.comment-card-meta {
+  display: flex; align-items: center;
+  gap: 8px; margin-bottom: 8px; flex-wrap: wrap;
+}
+.comment-category-badge {
+  font-size: 10px; font-weight: 700;
+  padding: 2px 8px; border-radius: 20px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.badge-이슈 { background: rgba(239,68,68,0.15); color: #ef4444; }
+.badge-업셀 { background: rgba(34,197,94,0.15); color: #22c55e; }
+.badge-미팅 { background: rgba(59,130,246,0.15); color: #3b82f6; }
+.badge-기타 { background: rgba(148,163,184,0.15); color: #94a3b8; }
+ 
+.comment-author { font-size: 12px; font-weight: 600; color: #c7d2fe; }
+.comment-date   { font-size: 11px; color: #475569; margin-left: auto; }
+.comment-text   { font-size: 13px; color: #cbd5e1; line-height: 1.6; }
+ 
+/* ── 빈 상태 ── */
+.comment-empty {
+  text-align: center; padding: 48px 16px;
+  color: #475569; font-size: 13px;
+}
+.comment-empty .icon { font-size: 32px; margin-bottom: 8px; }
+ 
+/* ── 로딩 ── */
+.comment-loading {
+  text-align: center; padding: 32px;
+  color: #64748b; font-size: 13px;
+}
+ 
+/* ── 댓글 작성 폼 ── */
+#comment-form-area {
+  padding: 16px 24px 20px;
+  border-top: 1px solid #1e293b;
+  flex-shrink: 0;
+  background: #0f172a;
+}
+#comment-form-area h4 {
+  font-size: 12px; font-weight: 600;
+  color: #64748b; margin: 0 0 12px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.comment-form-row {
+  display: flex; gap: 8px; margin-bottom: 10px;
+}
+.comment-input, .comment-select, .comment-textarea {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #f8fafc;
+  font-size: 13px;
+  font-family: 'Inter', sans-serif;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.comment-input   { padding: 9px 12px; width: 100%; }
+.comment-select  { padding: 9px 12px; flex: 1; cursor: pointer; }
+.comment-textarea {
+  padding: 10px 12px; width: 100%;
+  resize: none; height: 72px;
+  line-height: 1.5;
+}
+.comment-input:focus,
+.comment-select:focus,
+.comment-textarea:focus { border-color: #6366f1; }
+ 
+.comment-submit-btn {
+  width: 100%; padding: 10px;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  border: none; border-radius: 8px;
+  color: #fff; font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: all 0.2s;
+  margin-top: 4px;
+}
+.comment-submit-btn:hover  { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,0.4); }
+.comment-submit-btn:active { transform: translateY(0); }
+.comment-submit-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+ 
+/* ── 오버레이 ── */
+#comment-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 9998;
+}
+#comment-overlay.show { display: block; }
+ 
+/* ── 행 댓글 카운트 뱃지 ── */
+.row-comment-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: rgba(99,102,241,0.15);
+  color: #818cf8;
+  font-size: 10px; font-weight: 600;
+  padding: 2px 7px; border-radius: 10px;
+  margin-left: 6px; vertical-align: middle;
+}
   * { margin:0; padding:0; box-sizing:border-box; }
   body { background:#0f172a; color:#e2e8f0; font-family:'Inter',sans-serif; padding:24px 32px; min-height:100vh; }
   /* ─── Password Lock Screen ─── */
@@ -658,14 +819,11 @@ function parseSettlementResponse(response) {
     }
     const iPayDue = findColIndex(cols, ['입금예정일']);
     const iPaid = findColIndex(cols, ['입금여부']);
-
     if (typeof dbg === 'function') {
       dbg('📋 매출정산 헤더('+cols.length+'열): '+cols.slice(0,20).map((c,i)=>i+':'+((c.label||'').trim()||'?')).join(', '));
       dbg('📋 매출정산 컬럼매핑: ym='+iYM+' camp='+iCamp+' client='+iClient+' settle='+iSettle+' taxEx='+iTaxEx+' taxIn='+iTaxIn+' sebal='+iSebal+' payDue='+iPayDue+' paid='+iPaid);
     }
-
     if (iYM < 0 || iClient < 0) { if (typeof dbg === 'function') dbg('❌ 매출정산 필수 열 누락'); return null; }
-
     for (const row of table.rows) {
       const c = row.c;
       if (!c) continue;
@@ -680,7 +838,6 @@ function parseSettlementResponse(response) {
         }
         return s.length >= 10 ? s.slice(0,10) : s;
       };
-
       const ym = String(val(iYM)).trim();
       const campaign = iCamp >= 0 ? String(val(iCamp)).trim() : '';
       const client = String(val(iClient)).trim();
@@ -696,10 +853,8 @@ function parseSettlementResponse(response) {
       const payDueDate = iPayDue >= 0 ? dateVal(iPayDue) : '';
       const paidRaw = iPaid >= 0 ? val(iPaid) : '';
       const paid = paidRaw === true || paidRaw === 'TRUE' || paidRaw === 'true' || paidRaw === '1' || paidRaw === 1;
-
       if (!ym || !client) continue;
       if (taxAmtEx === 0 && taxAmtIn === 0 && !issueDate && !invoiceInfo) continue;
-
       data.push({ym, campaign, client, brand, squad, year, month, settleType, taxAmtEx, taxAmtIn, issueDate, invoiceInfo, payDueDate, paid});
     }
     if (typeof dbg === 'function') dbg('✅ 매출정산 파싱: '+data.length+'건');
@@ -2047,7 +2202,7 @@ function render() {
               const badgeTxt = c.status==='N'?'신규':c.status==='R'?'복귀':'기존';
               const rowCls = c.status==='N'?'new-row':c.status==='R'?'new-row':'';
               const chgCol = c.chg!==null?'<span class="'+(c.chg>=0?'up':'down')+'">'+(c.chg>=0?'▲':'▼')+' '+fmt(Math.abs(c.chg))+'</span>':(c.status==='N'?'<span style="color:#6ee7b7;font-weight:500">NEW</span>':'<span style="color:#7dd3fc;font-weight:500">RE</span>');
-              return '<tr class="'+rowCls+'"><td style="font-weight:500;color:#f8fafc">'+c.name+'</td><td style="color:#94a3b8">'+c.brand+'</td><td style="color:#94a3b8">'+c.squad+'</td><td><span class="badge '+badgeCls+'">'+badgeTxt+'</span></td><td style="text-align:right;color:'+(c.gp>=0?'#e2e8f0':'#f87171')+';font-weight:600">'+fmtW(c.gp)+'</td><td style="text-align:right">'+chgCol+'</td><td>'+renderProdTags(c.name,c.brand,c.squad,am?.year||'',am?.month||0)+'</td></tr>';
+              return '<tr class="'+rowCls+' portfolio-row" data-customer="'+c.name+'" onclick="openCommentPanel(\''+c.name.replace(/'/g,"\\'")+'\',\''+c.brand.replace(/'/g,"\\\'")+'\')">'+'<td style="font-weight:500;color:#f8fafc">'+c.name+'</td><td style="color:#94a3b8">'+c.brand+'</td><td style="color:#94a3b8">'+c.squad+'</td><td><span class="badge '+badgeCls+'">'+badgeTxt+'</span></td><td style="text-align:right;color:'+(c.gp>=0?'#e2e8f0':'#f87171')+';font-weight:600">'+fmtW(c.gp)+'</td><td style="text-align:right">'+chgCol+'</td><td>'+renderProdTags(c.name,c.brand,c.squad,am?.year||'',am?.month||0)+'</td></tr>';
             }).join('')}
           </tbody>
         </table>
@@ -2118,12 +2273,10 @@ function render() {
             const winStartStr = winStart.toISOString().slice(0,10);
             const winEndStr = winEnd.toISOString().slice(0,10);
             const today = new Date().toISOString().slice(0,10);
-
             const phaseColors = {disc:'#818cf8', ship:'#22d3ee', rec:'#f59e0b', contract:'#64748b'};
             const phaseNames = {disc:'디스커버리', ship:'배송', rec:'회수', contract:'계약'};
             const minD = (a,b) => !a ? b : !b ? a : (a < b ? a : b);
             const maxD = (a,b) => !a ? b : !b ? a : (a > b ? a : b);
-
             // ─── Group: Client → Brand → YM → Product, also track squads ───
             const tree = {}; // tree[client][brand][ym][product]
             const allSquads = new Set();
@@ -2149,7 +2302,6 @@ function render() {
               p.actualRecEnd = maxD(p.actualRecEnd, d.actualRecEnd);
               p.tgtRec += (d.tgtRec||0);
             });
-
             // ─── Filter: window overlap + CSM filter ───
             const overlaps = (p) => {
               const dates = [p.discStart,p.discEnd,p.shipStart,p.recStart,p.recEnd,p.contractEnd,p.actualRecEnd].filter(Boolean);
@@ -2173,7 +2325,6 @@ function render() {
                 });
               });
             });
-
             // ─── CSM filter buttons (지헌/보배/동수/혜원 only) ───
             const allowedCSMs = ['이지헌','이보배','장동수','장혜원'];
             const sqList = [...allSquads].filter(sq => allowedCSMs.includes(sq)).sort();
@@ -2182,11 +2333,9 @@ function render() {
               '<button onclick="setCampCsmFilter(\'all\')" style="'+btnStyle(campCsmFilter==='all')+'">전체</button>'+
               sqList.map(sq => '<button onclick="setCampCsmFilter(\''+sq.replace(/'/g,"\\'")+'\')" style="'+btnStyle(campCsmFilter===sq)+'">'+sq+'</button>').join('')+
             '</div>';
-
             if (totalRows === 0) {
               return filterHTML + '<div style="text-align:center;padding:40px;color:#64748b">이 기간에 해당하는 캠페인이 없습니다.</div>';
             }
-
             // ─── Day columns ───
             const ganttDays = [];
             let dd = new Date(winStart);
@@ -2196,14 +2345,12 @@ function render() {
             }
             const totalDays = ganttDays.length;
             const winLabel = (selYearFull%100)+'년 '+(winStart.getMonth()+1)+'월~'+((winEnd.getMonth()+1))+'월';
-
             // ─── Legend ───
             const phaseShort = {disc:'디스커버리', ship:'배송', rec:'회수', contract:'계약'};
             const legendHTML = '<div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">'+
               Object.entries(phaseColors).map(([k,c])=>'<span style="display:flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8"><span style="width:16px;height:10px;border-radius:3px;background:'+c+';display:inline-block"></span>'+phaseNames[k]+'</span>').join('')+
               '<span style="display:flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8"><span style="width:2px;height:14px;background:#ef4444;display:inline-block"></span>오늘</span>'+
             '</div>';
-
             // ─── Day index helper ───
             const dayIdx = (dateStr) => {
               if (!dateStr) return null;
@@ -2211,7 +2358,6 @@ function render() {
               return Math.max(0, Math.min(totalDays-1, Math.round((d - winStart) / 86400000)));
             };
             const todayIdx = dayIdx(today);
-
             // ─── Headers (compact) ───
             let monthHeaderHTML = '', dayHeaderHTML = '';
             let prevM = -1, mSpan = 0;
@@ -2228,7 +2374,6 @@ function render() {
               else st += 'color:#475569;';
               dayHeaderHTML += '<th style="'+st+'">'+(showDay||isToday?gd.day:'')+'</th>';
             });
-
             // ─── Helper: render timeline bar (single td with overlay bars) ───
             const renderTimeline = (p) => {
               const phases = [];
@@ -2236,7 +2381,6 @@ function render() {
               if (p.shipStart) phases.push({type:'ship', start:p.shipStart, end:p.recStart||p.shipStart});
               if (p.recStart) phases.push({type:'rec', start:p.recStart, end:p.recEnd||p.recStart});
               if (p.contractEnd) phases.push({type:'contract', start:p.contractEnd, end:p.contractEnd});
-
               // Adjust phases so they don't overlap: trim previous phase end to 1 day before next phase start
               for (let i = 0; i < phases.length - 1; i++) {
                 if (phases[i].end >= phases[i+1].start) {
@@ -2244,7 +2388,6 @@ function render() {
                   phases[i].end = trimEnd > phases[i].start ? trimEnd : phases[i].start;
                 }
               }
-
               let barsHTML = '';
               // Render all phases as one continuous bar, then overlay individual colors
               if (phases.length > 0) {
@@ -2257,7 +2400,6 @@ function render() {
                   barsHTML += '<div style="position:absolute;left:'+fullLeft+'%;width:'+fullWidth+'%;height:22px;top:2px;background:#1e293b;border-radius:5px;z-index:0"></div>';
                 }
               }
-
               phases.forEach((ph, pi) => {
                 const si = dayIdx(ph.start);
                 const ei = dayIdx(ph.end || ph.start);
@@ -2267,31 +2409,26 @@ function render() {
                 const widthPct = (Math.max(1, ei - si + 1) / totalDays * 100).toFixed(2);
                 const isPast = ph.end && ph.end < today;
                 const op = isPast ? '0.55' : '1';
-
                 // Round only the outermost edges
                 const isFirst = pi === 0;
                 const isLast = pi === phases.length - 1;
                 const rL = isFirst ? '5px' : '0';
                 const rR = isLast ? '5px' : '0';
-
                 // Phase label
                 const label = phaseShort[ph.type] + '(' + realDays + '일)';
                 const spanPct = (ei - si + 1) / totalDays * 100;
                 const showLabel = spanPct > 4;
-
                 barsHTML += '<div style="position:absolute;left:'+leftPct+'%;width:'+widthPct+'%;height:22px;top:2px;background:'+phaseColors[ph.type]+';opacity:'+op+';border-radius:'+rL+' '+rR+' '+rR+' '+rL+';display:flex;align-items:center;justify-content:center;overflow:hidden;z-index:'+(pi+1)+'" title="'+phaseNames[ph.type]+': '+ph.start+' ~ '+(ph.end||'?')+' ('+realDays+'일)">';
                 if (showLabel) {
                   barsHTML += '<span style="font-size:8px;color:#fff;font-weight:700;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,0.5)">'+label+'</span>';
                 }
                 barsHTML += '</div>';
               });
-
               // Today marker line
               if (todayIdx !== null && todayIdx >= 0 && todayIdx < totalDays) {
                 const tLeft = ((todayIdx + 0.5) / totalDays * 100).toFixed(2);
                 barsHTML += '<div style="position:absolute;left:'+tLeft+'%;width:2px;height:26px;top:0;background:#ef4444;z-index:4;border-radius:1px;opacity:0.8"></div>';
               }
-
               // Month boundary lines
               ganttDays.forEach((gd, gi) => {
                 if (gd.day === 1 && gi > 0) {
@@ -2299,10 +2436,8 @@ function render() {
                   barsHTML += '<div style="position:absolute;left:'+mLeft+'%;width:1px;height:26px;top:0;background:#334155;z-index:0"></div>';
                 }
               });
-
               return '<td colspan="'+totalDays+'" style="position:relative;height:26px;padding:0">'+barsHTML+'</td>';
             };
-
             // ─── Build rows: Client → Brand → Month → Product(count) ───
             let bodyHTML = '';
             const W_CL = 100, W_BR = 80, W_YM = 58, W_PR = 'auto';
@@ -2310,20 +2445,16 @@ function render() {
             sortedClients.forEach(cl => {
               const brands = filteredTree[cl];
               let isFirstRowForClient = true;
-
               Object.keys(brands).sort().forEach(br => {
                 const yms = brands[br];
                 let isFirstRowForBrand = true;
-
                 Object.keys(yms).sort().forEach(ym => {
                   const prods = yms[ym];
                   const prodList = Object.values(prods).sort((a,b) => b.tgtRec - a.tgtRec);
                   let isFirstRowForYM = true;
-
                   prodList.forEach(p => {
                     const prodLabel = p.product + (p.tgtRec ? ' ('+p.tgtRec.toLocaleString()+')' : '');
                     const borderStyle = isFirstRowForClient ? '#334155' : isFirstRowForBrand ? '#1e293b' : '#1e293b44';
-
                     bodyHTML += '<tr style="border-top:1px solid '+borderStyle+'">';
                     bodyHTML += '<td style="font-size:11px;padding:3px 6px;white-space:nowrap">';
                     bodyHTML += '<span style="display:inline-block;min-width:'+W_CL+'px;color:#e2e8f0;font-weight:600">'+(isFirstRowForClient ? cl : '')+'</span>';
@@ -2333,7 +2464,6 @@ function render() {
                     bodyHTML += '</td>';
                     bodyHTML += renderTimeline(p);
                     bodyHTML += '</tr>';
-
                     isFirstRowForClient = false;
                     isFirstRowForBrand = false;
                     isFirstRowForYM = false;
@@ -2341,12 +2471,10 @@ function render() {
                 });
               });
             });
-
             // ─── 해당 월 회수 마감 예정 캠페인 ───
             const selYM = String(selYearFull%100).padStart(2,'0')+'년 '+String(selMonth).padStart(2,'0')+'월';
             const selMonthStart = new Date(selYearFull, selMonth-1, 1).toISOString().slice(0,10);
             const selMonthEnd = new Date(selYearFull, selMonth, 0).toISOString().slice(0,10);
-
             // Deduplicate campaigns by name, merge across months
             const campByName = {};
             CAMPAIGN_DATA.forEach(d => {
@@ -2363,12 +2491,10 @@ function render() {
               c.tgtRec = Math.max(c.tgtRec, d.tgtRec||0);
               if (d.discStart || d.shipStart || d.recStart || d.recEnd || d.contractEnd) c.hasDates = true;
             });
-
             // 1) 회수 마감 예정: recEnd가 해당 월에 속하는 캠페인
             const recDueCamps = Object.values(campByName).filter(c =>
               c.recEnd && c.recEnd >= selMonthStart && c.recEnd <= selMonthEnd
             ).sort((a,b) => (a.recEnd||'').localeCompare(b.recEnd||''));
-
             let recDueHTML = '';
             if (recDueCamps.length > 0) {
               recDueHTML = '<div style="margin-top:24px;padding:16px;background:#0c1525;border:1px solid #1e293b;border-radius:10px">' +
@@ -2380,7 +2506,6 @@ function render() {
                 ).join('') +
                 '</tbody></table></div>';
             }
-
             // 2) 해당 월에 속하지만 타임라인 없는 캠페인
             const noTimelineCamps = CAMPAIGN_DATA.filter(d => {
               const sq = d.squad || '미지정';
@@ -2398,7 +2523,6 @@ function render() {
               if (!noTLMap[key]) noTLMap[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, squad:d.squad||'미지정'};
             });
             const noTLList = Object.values(noTLMap).sort((a,b) => a.client.localeCompare(b.client));
-
             let noTLHTML = '';
             if (noTLList.length > 0) {
               noTLHTML = '<div style="margin-top:16px;padding:16px;background:#0c1525;border:1px solid #1e293b;border-radius:10px">' +
@@ -2409,7 +2533,6 @@ function render() {
                 ).join('') +
                 '</div></div>';
             }
-
             return filterHTML + legendHTML +
               '<p class="sub" style="margin-bottom:8px">캠페인 현황 · '+winLabel+' · '+totalRows+'건</p>' +
               '<table style="width:100%;border-collapse:collapse;table-layout:fixed"><colgroup><col style="width:340px"><col span="'+totalDays+'"></colgroup><thead style="position:sticky;top:0;z-index:5;background:#0f172a"><tr><th style="width:340px"></th>'+monthHeaderHTML+'</tr><tr><th style="width:340px;font-size:10px;color:#64748b;text-align:left;padding-left:6px">고객사 / 브랜드 / 월 / 상품</th>'+dayHeaderHTML+'</tr></thead><tbody>'+bodyHTML+'</tbody></table>' +
@@ -2423,7 +2546,6 @@ function render() {
       ${(() => {
         const hasData = TAX_DATA && TAX_DATA.length > 0;
         if (!hasData) return '<div class="card"><p style="text-align:center;padding:40px;color:#94a3b8">세금계산서 데이터를 불러오는 중입니다...<br><span style="font-size:12px">매출정산 시트(gid='+TAX_GID+')에 데이터가 있으면 표시됩니다.</span></p></div>';
-
         // Summary stats
         const totalCount = TAX_DATA.length;
         const issuedCount = TAX_DATA.filter(d => d.invoiceInfo).length;
@@ -2431,7 +2553,6 @@ function render() {
         const paidCount = TAX_DATA.filter(d => d.paid).length;
         const notPaidCount = TAX_DATA.filter(d => d.invoiceInfo && !d.paid).length;
         const totalAmount = TAX_DATA.reduce((s, d) => s + d.taxAmtIn, 0);
-
         // Monthly aggregation
         const monthlyData = {};
         TAX_DATA.forEach(d => {
@@ -2440,18 +2561,14 @@ function render() {
           else if (d.invoiceInfo && !d.paid) monthlyData[d.ym].issued_not_paid += d.taxAmtIn;
           else monthlyData[d.ym].not_issued += d.taxAmtIn;
         });
-
         const monthKeys = Object.keys(monthlyData).sort();
-
         // Outstanding items (미발행 OR 미입금)
         const outstanding = TAX_DATA.filter(d => !d.invoiceInfo || !d.paid).sort((a,b) => (a.payDueDate||'').localeCompare(b.payDueDate||''));
-
         return '<div class="card">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">' +
             '<div><h2 style="margin-bottom:2px">🧾 세금계산서 현황</h2><p style="color:#64748b;font-size:12px">매출정산 시트 기반 발행 및 입금 추적</p></div>' +
             (monthSelectHTML ? '' : '') +
           '</div>' +
-
           // Summary KPI Grid
           '<div class="kpi-grid">' +
             '<div class="kpi" style="border-left-color:#0ea5e9"><div class="label">총 세발건수</div><div class="value" style="color:#7dd3fc">'+totalCount+'건</div></div>' +
@@ -2459,10 +2576,8 @@ function render() {
             '<div class="kpi" style="border-left-color:#f59e0b"><div class="label">미발행</div><div class="value" style="color:#fde68a">'+notIssuedCount+'건</div></div>' +
             '<div class="kpi" style="border-left-color:#6366f1"><div class="label">총 세발금액</div><div class="value" style="color:#a5b4fc">'+fmt(totalAmount)+'</div></div>' +
           '</div>' +
-
           // Monthly flow chart
           '<div style="margin-top:24px"><h3 style="font-size:14px;margin-bottom:12px">📊 월별 세발 현황</h3><div style="height:260px"><canvas id="taxMonthlyChart"></canvas></div></div>' +
-
           // Outstanding items table
           '<div style="margin-top:24px"><h3 style="font-size:14px;margin-bottom:12px">⚠️ 미완료 건('+outstanding.length+'건)</h3>' +
             (outstanding.length === 0 ? '<p style="text-align:center;padding:20px;color:#64748b">모든 세금계산서가 발행되고 입금이 완료되었습니다!</p>' :
@@ -2810,5 +2925,201 @@ if (sessionStorage.getItem('tkcle_auth') === '1') {
   loadData(true).then(()=>{updateDebugPanel();updateJsonLinks();});
 }
 </script>
+  <!-- 배경 오버레이 -->
+<div id="comment-overlay" onclick="closeCommentPanel()"></div>
+ 
+<!-- 코멘트 슬라이드 패널 -->
+<div id="comment-panel">
+ 
+  <!-- 헤더 -->
+  <div id="comment-panel-header">
+    <div>
+      <div id="comment-panel-title">💬 특이사항</div>
+      <div id="comment-panel-sub">고객사를 선택하세요</div>
+    </div>
+    <button id="comment-panel-close" onclick="closeCommentPanel()">✕</button>
+  </div>
+ 
+  <!-- 댓글 목록 -->
+  <div id="comment-list">
+    <div class="comment-empty">
+      <div class="icon">💬</div>
+      고객사를 클릭하면<br>특이사항을 확인할 수 있어요
+    </div>
+  </div>
+ 
+  <!-- 댓글 작성 폼 -->
+  <div id="comment-form-area">
+    <h4>새 특이사항 추가</h4>
+    <div class="comment-form-row">
+      <input  id="cf-author"   class="comment-input"   placeholder="작성자 이름" style="flex:1" />
+      <select id="cf-category" class="comment-select">
+        <option value="이슈">🔴 이슈</option>
+        <option value="업셀">🟢 업셀</option>
+        <option value="미팅">🔵 미팅</option>
+        <option value="기타">⚪ 기타</option>
+      </select>
+    </div>
+    <textarea id="cf-comment" class="comment-textarea"
+              placeholder="특이사항을 입력하세요 (예: CSM 미드+ 업셀 논의 중, 5월 결정 예정)"></textarea>
+    <button class="comment-submit-btn" onclick="submitComment()">저장하기</button>
+  </div>
+ 
+</div>
+  <script id="comment-script">
+ 
+// ── ★ 여기에 배포된 Apps Script URL을 입력하세요 ──────────
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyd55TzJ2wTBVeFanS5i0IRiWLnvW490A_6P4bpDynItFzQ0P9cU6hBGTnnzHc1n7Az/exec';
+// ──────────────────────────────────────────────────────────
+ 
+let currentCustomer = '';
+let commentCache = {};   // { 고객사명: [comments] }
+ 
+// ── 패널 열기 ───────────────────────────────────────────────
+function openCommentPanel(customerName, brandName) {
+  currentCustomer = customerName;
+  document.getElementById('comment-panel-title').textContent = '💬 ' + customerName;
+  document.getElementById('comment-panel-sub').textContent = brandName || '';
+  document.getElementById('comment-panel').classList.add('open');
+  document.getElementById('comment-overlay').classList.add('show');
+  loadComments(customerName);
+}
+ 
+// ── 패널 닫기 ───────────────────────────────────────────────
+function closeCommentPanel() {
+  document.getElementById('comment-panel').classList.remove('open');
+  document.getElementById('comment-overlay').classList.remove('show');
+}
+ 
+// ── 댓글 불러오기 ───────────────────────────────────────────
+async function loadComments(customerName) {
+  const listEl = document.getElementById('comment-list');
+  listEl.innerHTML = '<div class="comment-loading">불러오는 중...</div>';
+ 
+  try {
+    const url = APPS_SCRIPT_URL + '?customer=' + encodeURIComponent(customerName);
+    const res = await fetch(url);
+    const comments = await res.json();
+ 
+    commentCache[customerName] = comments;
+    renderComments(comments);
+    updateRowBadge(customerName, comments.length);
+ 
+  } catch (err) {
+    listEl.innerHTML = '<div class="comment-empty"><div class="icon">⚠️</div>불러오기 실패<br><small>' + err.message + '</small></div>';
+  }
+}
+ 
+// ── 댓글 렌더링 ─────────────────────────────────────────────
+function renderComments(comments) {
+  const listEl = document.getElementById('comment-list');
+ 
+  if (!comments || comments.length === 0) {
+    listEl.innerHTML = '<div class="comment-empty"><div class="icon">✏️</div>아직 특이사항이 없어요<br>아래에서 첫 번째 메모를 추가해보세요</div>';
+    return;
+  }
+ 
+  listEl.innerHTML = comments.map(c => `
+    <div class="comment-card" data-category="${esc(c.category)}">
+      <div class="comment-card-meta">
+        <span class="comment-category-badge badge-${esc(c.category)}">${esc(c.category)}</span>
+        <span class="comment-author">${esc(c.author)}</span>
+        <span class="comment-date">${esc(c.date)}</span>
+      </div>
+      <div class="comment-text">${esc(c.comment).replace(/\n/g, '<br>')}</div>
+    </div>
+  `).join('');
+}
+ 
+// ── 댓글 저장 ───────────────────────────────────────────────
+async function submitComment() {
+  const author   = document.getElementById('cf-author').value.trim();
+  const category = document.getElementById('cf-category').value;
+  const comment  = document.getElementById('cf-comment').value.trim();
+ 
+  if (!author)  { alert('작성자 이름을 입력해주세요'); return; }
+  if (!comment) { alert('내용을 입력해주세요'); return; }
+  if (!currentCustomer) { alert('고객사를 선택해주세요'); return; }
+ 
+  const btn = document.querySelector('.comment-submit-btn');
+  btn.disabled = true;
+  btn.textContent = '저장 중...';
+ 
+  try {
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        customer: currentCustomer,
+        category: category,
+        comment:  comment,
+        author:   author
+      })
+    });
+    const result = await res.json();
+ 
+    if (result.success) {
+      document.getElementById('cf-comment').value = '';
+      // 마지막 작성자 이름 기억 (편의 기능)
+      localStorage.setItem('tc_last_author', author);
+      await loadComments(currentCustomer);
+    } else {
+      alert('저장 실패: ' + (result.error || '알 수 없는 오류'));
+    }
+  } catch (err) {
+    alert('저장 실패: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '저장하기';
+  }
+}
+ 
+// ── 행에 댓글 수 뱃지 업데이트 ─────────────────────────────
+function updateRowBadge(customerName, count) {
+  document.querySelectorAll('.portfolio-row').forEach(row => {
+    if (row.dataset.customer === customerName) {
+      let badge = row.querySelector('.row-comment-badge');
+      if (count > 0) {
+        if (!badge) {
+          const firstCell = row.querySelector('td');
+          if (firstCell) {
+            badge = document.createElement('span');
+            badge.className = 'row-comment-badge';
+            firstCell.appendChild(badge);
+          }
+        }
+        if (badge) badge.textContent = '💬 ' + count;
+      }
+    }
+  });
+}
+ 
+ 
+// ── XSS 방지 이스케이프 ─────────────────────────────────────
+function esc(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+ 
+// ── 마지막 작성자 이름 자동 입력 ───────────────────────────
+(function() {
+  const lastAuthor = localStorage.getItem('tc_last_author');
+  if (lastAuthor) {
+    const authorInput = document.getElementById('cf-author');
+    if (authorInput) authorInput.value = lastAuthor;
+  }
+})();
+ 
+// ── ESC 키로 패널 닫기 ──────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeCommentPanel();
+});
+ 
+
+</script>
+ 
 </body>
 </html>
