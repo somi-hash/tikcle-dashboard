@@ -1910,7 +1910,7 @@ function renderHeatmapExpansion(clientName, months, gps) {
   if(existing) existing.remove();
   if(inlineChart) { inlineChart.destroy(); inlineChart = null; }
   if(!expandedClient) return;
-  const row = document.getElementById('hm-row-'+CSS.escape(clientName));
+  const row = document.getElementById('hm-row-'+clientName);
   if(!row) return;
   const tr = document.createElement('tr');
   tr.id = 'hm-expand';
@@ -2063,6 +2063,8 @@ let campCsmFilter = 'all'; // 'all' or CSM name
 function render() {
   const data = processData(currentYear);
   const {monthly, waterfall, getPortfolio, getCSMData, getHeatmap, getProductAnalysis, getCSMCalendar, totalGP} = data;
+  const totalIn = monthly.reduce((s,m)=>s+(m.totalIn||0),0);
+  const overallMargin = totalIn > 0 ? (totalGP/totalIn)*100 : 0;
   if(!monthly.length){ document.getElementById('app').innerHTML='<div style="text-align:center;padding:60px;color:#f87171">선택한 기간에 데이터가 없습니다.</div>'; return; }
   const months = currentYear==='all' ? monthly.length : 12;
   const elapsed = monthly.length;
@@ -2194,11 +2196,13 @@ function render() {
         <div class="grid2">
           <div>
             <div style="text-align:center"><canvas id="gaugeCanvas"></canvas></div>
-            <div class="stat-grid">
+            <div class="stat-grid" style="grid-template-columns:1fr 1fr 1fr">
+              <div class="stat-box"><div class="label">누적 수취예정(매출)</div><div class="value" style="color:#22d3ee">${fmt(totalIn)}</div></div>
               <div class="stat-box"><div class="label">누적 매출총이익</div><div class="value" style="color:#818cf8">${fmt(totalGP)}</div></div>
+              <div class="stat-box"><div class="label">누적 이익률</div><div class="value" style="color:#4ade80">${overallMargin.toFixed(1)}%</div></div>
               <div class="stat-box"><div class="label">잔여 목표</div><div class="value" style="color:${ANNUAL_TARGET-totalGP>0?'#f59e0b':'#4ade80'}">${ANNUAL_TARGET-totalGP>0?fmt(ANNUAL_TARGET-totalGP):'달성!'}</div></div>
-              <div class="stat-box"><div class="label">실제 월평균</div><div class="value" style="color:#22d3ee">${fmt(Math.round(avgActual))}</div></div>
-              <div class="stat-box"><div class="label">필요 월평균</div><div class="value" style="color:${avgNeeded>avgActual?'#f87171':'#4ade80'}">${avgNeeded<=0?'달성!':fmt(Math.round(avgNeeded))}</div></div>
+              <div class="stat-box"><div class="label">실제 GP 월평균</div><div class="value" style="color:#22d3ee">${fmt(Math.round(avgActual))}</div></div>
+              <div class="stat-box"><div class="label">필요 GP 월평균</div><div class="value" style="color:${avgNeeded>avgActual?'#f87171':'#4ade80'}">${avgNeeded<=0?'달성!':fmt(Math.round(avgNeeded))}</div></div>
             </div>
           </div>
           <div style="height:280px"><canvas id="cumCanvas"></canvas></div>
@@ -2234,14 +2238,16 @@ function render() {
           <div class="kpi" style="border-color:#4ade80"><div class="label">마진율</div><div class="value" style="color:#4ade80">${curMargin.toFixed(1)}%</div><div style="margin-top:4px">${momMargin}</div></div>
         </div>
         <table>
-          <thead><tr><th>고객사</th><th>브랜드</th><th>담당</th><th>상태</th><th style="text-align:right">매출총이익</th><th style="text-align:right">전월 대비</th><th>상품</th></tr></thead>
+          <thead><tr><th>고객사</th><th>브랜드</th><th>담당</th><th>상태</th><th style="text-align:right">수취예정(매출)</th><th style="text-align:right">매출총이익</th><th style="text-align:right">이익률</th><th style="text-align:right">전월 대비</th><th>상품</th></tr></thead>
           <tbody>
             ${port.active.map(c=>{
               const badgeCls = c.status==='N'?'badge-new':c.status==='R'?'badge-re':'badge-cont';
               const badgeTxt = c.status==='N'?'신규':c.status==='R'?'복귀':'기존';
               const rowCls = c.status==='N'?'new-row':c.status==='R'?'new-row':'';
               const chgCol = c.chg!==null?'<span class="'+(c.chg>=0?'up':'down')+'">'+(c.chg>=0?'▲':'▼')+' '+fmt(Math.abs(c.chg))+'</span>':(c.status==='N'?'<span style="color:#6ee7b7;font-weight:500">NEW</span>':'<span style="color:#7dd3fc;font-weight:500">RE</span>');
-              return '<tr class="'+rowCls+' portfolio-row" data-customer="'+c.name+'" onclick="openCommentPanel(\''+c.name.replace(/'/g,"\\'")+'\',\''+c.brand.replace(/'/g,"\\\'")+'\')">'+'<td style="font-weight:500;color:#f8fafc">'+c.name+'</td><td style="color:#94a3b8">'+c.brand+'</td><td style="color:#94a3b8">'+c.squad+'</td><td><span class="badge '+badgeCls+'">'+badgeTxt+'</span></td><td style="text-align:right;color:'+(c.gp>=0?'#e2e8f0':'#f87171')+';font-weight:600">'+fmtW(c.gp)+'</td><td style="text-align:right">'+chgCol+'</td><td>'+renderProdTags(c.name,c.brand,c.squad,am?.year||'',am?.month||0)+'</td></tr>';
+              const marginRate = c.inAmt > 0 ? (c.gp/c.inAmt*100) : 0;
+              const marginColor = marginRate >= 30 ? '#4ade80' : marginRate >= 15 ? '#fbbf24' : '#f87171';
+              return '<tr class="'+rowCls+' portfolio-row" data-customer="'+c.name+'" onclick="openCommentPanel(\''+c.name.replace(/'/g,"\\'")+'\',\''+c.brand.replace(/'/g,"\\\'")+'\')">'+'<td style="font-weight:500;color:#f8fafc">'+c.name+'</td><td style="color:#94a3b8">'+c.brand+'</td><td style="color:#94a3b8">'+c.squad+'</td><td><span class="badge '+badgeCls+'">'+badgeTxt+'</span></td><td style="text-align:right;color:#22d3ee">'+fmtW(c.inAmt||0)+'</td><td style="text-align:right;color:'+(c.gp>=0?'#e2e8f0':'#f87171')+';font-weight:600">'+fmtW(c.gp)+'</td><td style="text-align:right;color:'+marginColor+';font-weight:600">'+marginRate.toFixed(1)+'%</td><td style="text-align:right">'+chgCol+'</td><td>'+renderProdTags(c.name,c.brand,c.squad,am?.year||'',am?.month||0)+'</td></tr>';
             }).join('')}
           </tbody>
         </table>
@@ -2520,7 +2526,7 @@ function render() {
               const sq = d.squad || '미지정';
               if (campCsmFilter !== 'all' && sq !== campCsmFilter) return;
               const key = d.campaign + '||' + d.client;
-              if (!campByName[key]) campByName[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, squad:sq, recEnd:null, recStart:null, discStart:null, shipStart:null, contractEnd:null, tgtRec:0, hasDates:false};
+              if (!campByName[key]) campByName[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, squad:sq, recEnd:null, recStart:null, discStart:null, shipStart:null, contractEnd:null, tgtRec:0, gp:0, hasDates:false};
               const c = campByName[key];
               c.recEnd = maxD(c.recEnd, d.recEnd);
               c.recStart = minD(c.recStart, d.recStart);
@@ -2528,23 +2534,13 @@ function render() {
               c.shipStart = minD(c.shipStart, d.shipStart);
               c.contractEnd = maxD(c.contractEnd, d.contractEnd);
               c.tgtRec = Math.max(c.tgtRec, d.tgtRec||0);
+              c.gp += (d.gp||0);
               if (d.discStart || d.shipStart || d.recStart || d.recEnd || d.contractEnd) c.hasDates = true;
             });
             // 1) 회수 마감 예정: recEnd가 해당 월에 속하는 캠페인
             const recDueCamps = Object.values(campByName).filter(c =>
               c.recEnd && c.recEnd >= selMonthStart && c.recEnd <= selMonthEnd
             ).sort((a,b) => (a.recEnd||'').localeCompare(b.recEnd||''));
-            let recDueHTML = '';
-            if (recDueCamps.length > 0) {
-              recDueHTML = '<div style="margin-top:24px;padding:16px;background:#0c1525;border:1px solid #1e293b;border-radius:10px">' +
-                '<h3 style="font-size:13px;color:#f59e0b;margin-bottom:10px">📦 '+selMonth+'월 회수 마감 예정 ('+recDueCamps.length+'건)</h3>' +
-                '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
-                '<thead><tr><th style="text-align:left;color:#64748b;padding:4px 8px;border-bottom:1px solid #1e293b">고객사</th><th style="text-align:left;color:#64748b;padding:4px 8px;border-bottom:1px solid #1e293b">브랜드</th><th style="text-align:left;color:#64748b;padding:4px 8px;border-bottom:1px solid #1e293b">상품</th><th style="text-align:left;color:#64748b;padding:4px 8px;border-bottom:1px solid #1e293b">담당</th><th style="text-align:right;color:#64748b;padding:4px 8px;border-bottom:1px solid #1e293b">목표 회수</th><th style="text-align:right;color:#64748b;padding:4px 8px;border-bottom:1px solid #1e293b">회수 마감</th></tr></thead><tbody>' +
-                recDueCamps.map(c =>
-                  '<tr style="border-bottom:1px solid #1e293b44"><td style="padding:5px 8px;color:#e2e8f0;font-weight:500">'+c.client+'</td><td style="padding:5px 8px;color:#94a3b8">'+c.brand+'</td><td style="padding:5px 8px;color:#94a3b8">'+c.product+'</td><td style="padding:5px 8px;color:#94a3b8">'+c.squad+'</td><td style="padding:5px 8px;text-align:right;color:#f59e0b;font-weight:600">'+(c.tgtRec?c.tgtRec.toLocaleString():'—')+'</td><td style="padding:5px 8px;text-align:right;color:#cbd5e1">'+c.recEnd+'</td></tr>'
-                ).join('') +
-                '</tbody></table></div>';
-            }
             // 2) 해당 월에 속하지만 타임라인 없는 캠페인
             const noTimelineCamps = CAMPAIGN_DATA.filter(d => {
               const sq = d.squad || '미지정';
@@ -2555,27 +2551,70 @@ function render() {
               if (dym !== selYM) return false;
               return !d.discStart && !d.shipStart && !d.recStart && !d.recEnd && !d.contractEnd;
             });
-            // Deduplicate
+            // Deduplicate noTL: 고객사/브랜드/상품/담당/예산(GP) 포함
             const noTLMap = {};
             noTimelineCamps.forEach(d => {
               const key = d.campaign+'||'+d.client;
-              if (!noTLMap[key]) noTLMap[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, squad:d.squad||'미지정'};
+              if (!noTLMap[key]) noTLMap[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, squad:d.squad||'미지정', gp:0};
+              noTLMap[key].gp += (d.gp||0);
             });
             const noTLList = Object.values(noTLMap).sort((a,b) => a.client.localeCompare(b.client));
+            // ─── 2열 레이아웃: 좌=회수마감예정, 우=타임라인미등록 ───
+            let recDueHTML = '';
+            if (recDueCamps.length > 0) {
+              recDueHTML = '<div style="padding:16px;background:#0c1525;border:1px solid #f59e0b44;border-radius:10px;height:100%">' +
+                '<h3 style="font-size:13px;color:#f59e0b;margin-bottom:10px">📦 '+selMonth+'월 회수 마감 예정 ('+recDueCamps.length+'건)</h3>' +
+                '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
+                '<thead><tr>' +
+                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">고객사</th>' +
+                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">브랜드</th>' +
+                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">담당</th>' +
+                '<th style="text-align:right;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">예산(GP)</th>' +
+                '<th style="text-align:right;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">회수 마감</th>' +
+                '</tr></thead><tbody>' +
+                recDueCamps.map(c =>
+                  '<tr style="border-bottom:1px solid #1e293b44">' +
+                  '<td style="padding:5px 6px;color:#e2e8f0;font-weight:500">'+c.client+'</td>' +
+                  '<td style="padding:5px 6px;color:#94a3b8">'+c.brand+'</td>' +
+                  '<td style="padding:5px 6px;color:#94a3b8">'+c.squad+'</td>' +
+                  '<td style="padding:5px 6px;text-align:right;color:#818cf8;font-weight:600">'+(c.gp?fmt(c.gp):'—')+'</td>' +
+                  '<td style="padding:5px 6px;text-align:right;color:#f59e0b;font-weight:500">'+c.recEnd+'</td>' +
+                  '</tr>'
+                ).join('') +
+                '</tbody></table></div>';
+            } else {
+              recDueHTML = '<div style="padding:16px;background:#0c1525;border:1px solid #1e293b;border-radius:10px;height:100%;display:flex;align-items:center;justify-content:center;color:#475569;font-size:12px">📭 '+selMonth+'월 회수 마감 예정 없음</div>';
+            }
             let noTLHTML = '';
             if (noTLList.length > 0) {
-              noTLHTML = '<div style="margin-top:16px;padding:16px;background:#0c1525;border:1px solid #1e293b;border-radius:10px">' +
-                '<h3 style="font-size:13px;color:#64748b;margin-bottom:10px">⚠️ '+selMonth+'월 타임라인 미확인 ('+noTLList.length+'건)</h3>' +
-                '<div style="display:flex;flex-wrap:wrap;gap:8px">' +
+              noTLHTML = '<div style="padding:16px;background:#0c1525;border:1px solid #334155;border-radius:10px;height:100%">' +
+                '<h3 style="font-size:13px;color:#94a3b8;margin-bottom:10px">⚠️ 타임라인 미등록 ('+noTLList.length+'건) <span style="font-size:11px;color:#475569;font-weight:400">'+selMonth+'월 귀속</span></h3>' +
+                '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
+                '<thead><tr>' +
+                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">고객사</th>' +
+                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">브랜드</th>' +
+                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">상품</th>' +
+                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">담당</th>' +
+                '<th style="text-align:right;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">예산</th>' +
+                '</tr></thead><tbody>' +
                 noTLList.map(c =>
-                  '<span style="font-size:11px;padding:4px 10px;background:#1e293b;border-radius:6px;color:#94a3b8">'+c.client+' <span style="color:#64748b">'+c.brand+'</span> <span style="color:#475569">'+c.product+'</span> <span style="color:#475569;font-size:9px">'+c.squad+'</span></span>'
+                  '<tr style="border-bottom:1px solid #1e293b44">' +
+                  '<td style="padding:5px 6px;color:#e2e8f0;font-weight:500">'+c.client+'</td>' +
+                  '<td style="padding:5px 6px;color:#94a3b8">'+c.brand+'</td>' +
+                  '<td style="padding:5px 6px;color:#64748b">'+c.product+'</td>' +
+                  '<td style="padding:5px 6px;color:#64748b">'+c.squad+'</td>' +
+                  '<td style="padding:5px 6px;text-align:right;color:#818cf8;font-weight:600">'+(c.gp?fmt(c.gp):'—')+'</td>' +
+                  '</tr>'
                 ).join('') +
-                '</div></div>';
+                '</tbody></table></div>';
+            } else {
+              noTLHTML = '<div style="padding:16px;background:#0c1525;border:1px solid #1e293b;border-radius:10px;height:100%;display:flex;align-items:center;justify-content:center;color:#475569;font-size:12px">✅ '+selMonth+'월 타임라인 미등록 없음</div>';
             }
+            const bottomSectionHTML = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px">'+recDueHTML+noTLHTML+'</div>';
             return filterHTML + legendHTML +
               '<p class="sub" style="margin-bottom:8px">캠페인 현황 · '+winLabel+' · '+totalRows+'건</p>' +
               '<table style="width:100%;border-collapse:collapse;table-layout:fixed"><colgroup><col style="width:340px"><col span="'+totalDays+'"></colgroup><thead style="position:sticky;top:0;z-index:5;background:#0f172a"><tr><th style="width:340px"></th>'+monthHeaderHTML+'</tr><tr><th style="width:340px;font-size:10px;color:#64748b;text-align:left;padding-left:6px">고객사 / 브랜드 / 월 / 상품</th>'+dayHeaderHTML+'</tr></thead><tbody>'+bodyHTML+'</tbody></table>' +
-              recDueHTML + noTLHTML;
+              bottomSectionHTML;
           })()}
         </div>
       </div>
