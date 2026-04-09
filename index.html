@@ -265,6 +265,9 @@ if (!localStorage.getItem('tkcle_cashflow_gid')) {
   localStorage.setItem('tkcle_cashflow_gid', String(DEFAULT_CASHFLOW_GID));
 }
 let TAX_DATA = []; // [{ym, campaign, client, brand, squad, year, month, settleType, taxAmtEx, taxAmtIn, issueDate, invoiceInfo, payDueDate, paid}]
+const INFLU_PAY_GID = 1385383205; // 인플루언서 지급 시트 gid
+const FX_USD_TO_KRW = 1500;       // USD→KRW 환산용 고정 환율
+let INFLU_PAY_DATA = []; // [{date, ym, amt, client, brand, csm, krwOriginal}]
 // ─── Google gviz 기본 응답 핸들러 (JSONP 에러 캐치용) ────────────
 // Google의 gviz API는 에러 발생 시 tqx=responseHandler를 무시하고
 // google.visualization.Query.setResponse()를 호출함 → 이를 캐치
@@ -1052,6 +1055,50 @@ function fetchSheetGAS(gasUrl, sheetId, gid, callbackName) {
   dbg('📡 상품 시트 GAS: gid='+gid);
   return fetchViaGAS(gasUrl, sheetId, gid);
 }
+// ─── 인플 지급 시트(gid=1385383205) 파싱 ─────────────────────────
+// 컬럼: C=고객사, D=브랜드, E=CSM, I=금액(USD), J=금액(KRW), K=지급일자
+function parseInfluPayResponse(response) {
+  try {
+    const table = response.table;
+    if (!table || !table.rows) return [];
+    const data = [];
+    const cClient=2, cBrand=3, cCsm=4, cUsd=8, cKrw=9, cDate=10;
+    for (const row of table.rows) {
+      const c = row.c;
+      if (!c) continue;
+      const val = (idx) => c[idx] ? (c[idx].v != null ? c[idx].v : (c[idx].f || '')) : '';
+      let rawDate = val(cDate);
+      let dateStr = '';
+      if (rawDate instanceof Date) {
+        dateStr = rawDate.getFullYear()+'-'+String(rawDate.getMonth()+1).padStart(2,'0')+'-'+String(rawDate.getDate()).padStart(2,'0');
+      } else if (typeof rawDate === 'string' && rawDate.startsWith('Date(')) {
+        const m = rawDate.match(/Date\((\d+),(\d+),(\d+)/);
+        if (m) dateStr = m[1]+'-'+String(parseInt(m[2])+1).padStart(2,'0')+'-'+String(m[3]).padStart(2,'0');
+      } else if (rawDate) {
+        const m = String(rawDate).match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+        if (m) dateStr = m[1]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[3]).padStart(2,'0');
+      }
+      if (!dateStr) continue;
+      const krw = parseFloat(String(val(cKrw)||'').replace(/[₩,W\s]/g,'')) || 0;
+      const usd = parseFloat(String(val(cUsd)||'').replace(/[$,\s]/g,'')) || 0;
+      const amt = krw > 0 ? krw : Math.round(usd * FX_USD_TO_KRW);
+      if (amt <= 0) continue;
+      data.push({
+        date: dateStr,
+        ym: dateStr.slice(0,7),
+        amt,
+        client: String(val(cClient)||'').trim(),
+        brand: String(val(cBrand)||'').trim(),
+        csm: String(val(cCsm)||'').trim(),
+        krwOriginal: krw > 0
+      });
+    }
+    return data;
+  } catch(e) {
+    dbg('⚠️ 인플 지급 파싱 에러: '+e.message);
+    return [];
+  }
+}
 // ─── Cashflow sheet → PRODUCT_MAP 파싱 ───────────────────────────
 // cashflow 시트에서 C=캠페인, D=고객사, E=브랜드, F=상품, N=연도, O=월, P=수취, Q=지급
 function parseCashflowForProducts(response) {
@@ -1260,6 +1307,21 @@ async function loadData(showStatus) {
               render();
             } else { dbg('⚠️ 매출정산 파싱 결과 없음'); }
           } else { dbg('⚠️ 매출정산 JSONP 실패 → 스킵'); }
+        })
+      );
+
+      dbg('── 4) 인플 지급 시트(gid='+INFLU_PAY_GID+') 병렬 로드');
+      const influUrl = 'https://docs.google.com/spreadsheets/d/'+sheetId+'/gviz/tq?gid='+INFLU_PAY_GID;
+      jobs.push(
+        loadJSONP(influUrl, 15000).then(rawInfluResp => {
+          if (rawInfluResp && rawInfluResp.table) {
+            const influData = parseInfluPayResponse(rawInfluResp);
+            if (influData && influData.length > 0) {
+              INFLU_PAY_DATA = influData;
+              dbg('✅ 인플 지급 데이터 '+INFLU_PAY_DATA.length+'건 로드');
+              render();
+            } else { dbg('⚠️ 인플 지급 파싱 결과 없음'); }
+          } else { dbg('⚠️ 인플 지급 JSONP 실패 → 스킵'); }
         })
       );
 
@@ -2190,6 +2252,7 @@ function render() {
       <button class="tab-btn ${currentTab==='csm'?'active':''}" onclick="switchTab('csm')">CSM별 현황</button>
       <button class="tab-btn ${currentTab==='heatmap'?'active':''}" onclick="switchTab('heatmap')">고객사 연간 흐름</button>
       <button class="tab-btn ${currentTab==='product'?'active':''}" onclick="switchTab('product')">상품별 현황</button>
+      <button class="tab-btn ${currentTab==='cashflow'?'active':''}" onclick="switchTab('cashflow')">💰 현금흐름</button>
       <button class="tab-btn ${currentTab==='tax'?'active':''}" onclick="switchTab('tax')">🧾 세금계산서</button>
     </div>
     <!-- TAB: Overview -->
@@ -2654,6 +2717,74 @@ function render() {
         </div>
       </div>
     </div>
+    <!-- TAB: Cashflow (현금흐름 캘린더) -->
+    <div class="tab-content ${currentTab==='cashflow'?'active':''}" id="tab-cashflow">
+      ${(() => {
+        const hasIn = TAX_DATA && TAX_DATA.length > 0;
+        const hasOut = INFLU_PAY_DATA && INFLU_PAY_DATA.length > 0;
+        if (!hasIn && !hasOut) {
+          return '<div class="card"><p style="text-align:center;padding:40px;color:#94a3b8">현금흐름 데이터를 불러오는 중입니다...<br><span style="font-size:12px">매출정산 시트의 발행기준일과 인플 지급 시트(gid='+INFLU_PAY_GID+')의 지급일자가 필요합니다.</span></p></div>';
+        }
+        const months = {};
+        const bump = (ym, key, amt) => {
+          if (!months[ym]) months[ym] = {in:0, out:0};
+          months[ym][key] += amt;
+        };
+        TAX_DATA.forEach(d => {
+          if (!d.issueDate) return;
+          const ym = String(d.issueDate).slice(0,7);
+          if (!ym || ym.length !== 7) return;
+          bump(ym, 'in', d.taxAmtIn || 0);
+        });
+        INFLU_PAY_DATA.forEach(p => bump(p.ym, 'out', p.amt));
+        const sortedYms = Object.keys(months).sort();
+        let cum = 0;
+        const rows = sortedYms.map(ym => {
+          const inn = months[ym].in;
+          const out = months[ym].out;
+          const net = inn - out;
+          cum += net;
+          return {ym, inn, out, net, cum};
+        });
+        const totalIn = rows.reduce((s,r)=>s+r.inn, 0);
+        const totalOut = rows.reduce((s,r)=>s+r.out, 0);
+        const totalNet = totalIn - totalOut;
+        const fmt = (n) => '₩'+(Math.round(n)).toLocaleString();
+        const colorNet = (n) => n >= 0 ? '#4ade80' : '#f87171';
+        const today = new Date();
+        const curYm = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0');
+        let html = '';
+        html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">';
+        html += '  <div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유입 (매출 발행 기준)</div><div style="font-size:22px;font-weight:700;color:#60a5fa">'+fmt(totalIn)+'</div><div style="font-size:10px;color:#64748b;margin-top:4px">세발 발행기준일 · VAT포함</div></div>';
+        html += '  <div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유출 (인플 정산)</div><div style="font-size:22px;font-weight:700;color:#f87171">'+fmt(totalOut)+'</div><div style="font-size:10px;color:#64748b;margin-top:4px">지급일자 기준 · USD는 1,500원 환산</div></div>';
+        html += '  <div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">순현금흐름 누적</div><div style="font-size:22px;font-weight:700;color:'+colorNet(totalNet)+'">'+fmt(totalNet)+'</div><div style="font-size:10px;color:#64748b;margin-top:4px">유입 - 유출</div></div>';
+        html += '</div>';
+        html += '<div class="card" style="margin-bottom:16px"><div style="font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:12px">월별 유입 vs 유출 (누적 순현금)</div><div style="height:340px"><canvas id="cashflowChartCanvas"></canvas></div></div>';
+        html += '<div class="card"><div style="font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:12px">월별 현금흐름 표</div>';
+        html += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+        html += '<thead><tr style="border-bottom:1px solid #334155;color:#94a3b8">';
+        html += '<th style="text-align:left;padding:8px">월</th>';
+        html += '<th style="text-align:right;padding:8px">유입(+)</th>';
+        html += '<th style="text-align:right;padding:8px">유출(-)</th>';
+        html += '<th style="text-align:right;padding:8px">순현금</th>';
+        html += '<th style="text-align:right;padding:8px">누적</th>';
+        html += '</tr></thead><tbody>';
+        rows.forEach(r => {
+          const isCur = r.ym === curYm;
+          const bg = isCur ? 'background:#1e293b' : '';
+          html += '<tr style="border-bottom:1px solid #1e293b;'+bg+'">';
+          html += '<td style="padding:8px;color:#e2e8f0">'+r.ym+(isCur?' <span style="font-size:10px;color:#fbbf24">(현재)</span>':'')+'</td>';
+          html += '<td style="padding:8px;text-align:right;color:#60a5fa">'+(r.inn>0?fmt(r.inn):'-')+'</td>';
+          html += '<td style="padding:8px;text-align:right;color:#f87171">'+(r.out>0?'-'+fmt(r.out):'-')+'</td>';
+          html += '<td style="padding:8px;text-align:right;font-weight:600;color:'+colorNet(r.net)+'">'+(r.net>=0?'+':'')+fmt(r.net)+'</td>';
+          html += '<td style="padding:8px;text-align:right;color:'+colorNet(r.cum)+'">'+(r.cum>=0?'+':'')+fmt(r.cum)+'</td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+        window.__cashflowChartData = rows;
+        return html;
+      })()}
+    </div>
     <!-- TAB: Tax Invoice (세금계산서) -->
     <div class="tab-content ${currentTab==='tax'?'active':''}" id="tab-tax">
       ${(() => {
@@ -2756,50 +2887,10 @@ function render() {
           </div>
           ${pa.hasProds ? monthSelectHTML : ''}
         </div>
-        <!-- 상품 데이터 없을 때 안내 -->
-        <div id="prod-empty-state" style="display:${pa.hasProds?'none':'block'};text-align:center;padding:40px 20px">
-          <div style="font-size:48px;margin-bottom:16px">📋</div>
-          <h3 style="color:#e2e8f0;margin-bottom:8px">상품 데이터가 아직 연동되지 않았습니다</h3>
-          <p style="color:#94a3b8;font-size:13px;max-width:520px;margin:0 auto;line-height:1.7">
-            이 섹션은 <strong style="color:#c7d2fe">cashflow 시트의 F열(상품명: 대량무가, CPS 등)</strong> 데이터를 사용합니다.<br>
-            통합정산(gid=${MAIN_GID})과 같은 스프레드시트 내 cashflow 탭을 자동 탐색합니다.
-          </p>
-          <div style="background:#0f172a;border-radius:10px;padding:16px 20px;max-width:520px;margin:20px auto;text-align:left">
-            <p style="color:#94a3b8;font-size:12px;margin-bottom:10px"><strong style="color:#c7d2fe">cashflow 시트 필수 컬럼 (15열 이상):</strong></p>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;color:#64748b">
-              <span>D열 = 고객사</span><span>E열 = 브랜드</span>
-              <span style="color:#22d3ee;font-weight:600">F열 = 상품 (핵심)</span><span>N열 = 연도</span>
-              <span>O열 = 월</span><span>P열 = 수취, Q열 = 지급</span>
-            </div>
-          </div>
-          <div style="background:#0f172a;border-radius:10px;padding:16px 20px;max-width:520px;margin:12px auto;text-align:left">
-            <p style="color:#94a3b8;font-size:12px;margin-bottom:8px"><strong style="color:#f59e0b">연결 실패 원인 진단:</strong></p>
-            <div style="font-size:12px;color:#64748b;line-height:1.8">
-              <div>현재 데이터 소스: <strong style="color:#f8fafc">${dataSource}</strong></div>
-              <div>시트 ID: <strong style="color:#f8fafc">${extractSheetId(SHEETS_ID) || '(없음)'}</strong></div>
-              <div>GAS 프록시: <strong style="color:#f8fafc">${GAS_URL ? '설정됨' : '❌ 미설정'}</strong></div>
-              <div>PRODUCT_MAP 키 수: <strong style="color:#f8fafc">${Object.keys(PRODUCT_MAP).length}</strong></div>
-              <div style="margin-top:6px;color:#94a3b8">
-                ${dataSource==='fallback' ? '⚠️ Sheets 연결 안 됨 → 상단 ⚙ 데이터 설정에서 URL 입력 필요' :
-                  dataSource==='error' ? '❌ Sheets 연결 실패 → 스프레드시트를 "링크가 있는 모든 사용자"로 공개하거나 GAS 프록시 설정 필요' :
-                  'Sheets 연결됨 → cashflow 탭(gid=1~5)에서 15열 이상 시트를 찾지 못함'}
-              </div>
-            </div>
-          </div>
-          <div style="background:#0f172a;border-radius:10px;padding:16px 20px;max-width:520px;margin:12px auto;text-align:left">
-            <p style="color:#94a3b8;font-size:12px;margin-bottom:8px"><strong style="color:#c7d2fe">cashflow 시트 gid 직접 입력:</strong></p>
-            <p style="color:#64748b;font-size:11px;margin-bottom:8px">스프레드시트 URL의 #gid= 뒤의 숫자를 입력하세요 (예: 1234567890)</p>
-            <div style="display:flex;gap:8px">
-              <input id="cashflowGidInput" type="text" placeholder="gid 숫자 입력" value="${localStorage.getItem('tkcle_cashflow_gid')||''}"
-                style="flex:1;background:#1e293b;border:1px solid #334155;color:#f8fafc;padding:8px 12px;border-radius:6px;font-size:13px">
-              <button onclick="const v=document.getElementById('cashflowGidInput').value.trim();if(v){localStorage.setItem('tkcle_cashflow_gid',v);loadData(true);}else{localStorage.removeItem('tkcle_cashflow_gid');}"
-                style="background:#6366f1;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">탐색 시작</button>
-            </div>
-          </div>
-          <div style="margin-top:16px;display:flex;gap:8px;justify-content:center">
-            <button onclick="toggleConfigUI()" style="background:linear-gradient(135deg,#6366f1,#818cf8);color:#fff;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">⚙ 데이터 설정</button>
-            <button onclick="loadData(true)" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">🔄 다시 시도</button>
-          </div>
+        <!-- 상품 데이터 로딩 중 안내 -->
+        <div id="prod-empty-state" style="display:${pa.hasProds?'none':'block'};text-align:center;padding:60px 20px">
+          <div style="font-size:36px;margin-bottom:16px;animation:pulse 1.5s infinite">⏳</div>
+          <div style="font-size:15px;color:#94a3b8">상품 데이터 불러오는 중...</div>
         </div>
         <!-- 상품 데이터 있을 때 차트 -->
         <div id="prod-charts-content" style="display:${pa.hasProds?'block':'none'}">
@@ -2896,7 +2987,46 @@ function render() {
     }
   });
   // 새로고침 후에도 뱃지 즉시 복원
-  
+
+  if (currentTab === 'cashflow') setTimeout(drawCashflowChart, 50);
+}
+let _cashflowChartInstance = null;
+function drawCashflowChart() {
+  const canvas = document.getElementById('cashflowChartCanvas');
+  if (!canvas || !window.__cashflowChartData) return;
+  const rows = window.__cashflowChartData;
+  if (_cashflowChartInstance) { try { _cashflowChartInstance.destroy(); } catch(e){} }
+  _cashflowChartInstance = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: rows.map(r => r.ym),
+      datasets: [
+        { label: '유입(매출)', data: rows.map(r => r.inn), backgroundColor: '#3b82f6', stack: 'a', order: 2 },
+        { label: '유출(인플 정산)', data: rows.map(r => -r.out), backgroundColor: '#ef4444', stack: 'a', order: 2 },
+        { label: '누적 순현금', type: 'line', data: rows.map(r => r.cum),
+          borderColor: '#fbbf24', backgroundColor: 'transparent', borderWidth: 2,
+          pointRadius: 3, pointBackgroundColor: '#fbbf24', tension: 0.3, order: 1 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#cbd5e1', font: {size: 11} } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ctx.dataset.label + ': ₩' + Math.round(Math.abs(ctx.parsed.y)).toLocaleString()
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
+        y: {
+          ticks: { color: '#94a3b8', callback: (v) => '₩' + (v/1000000).toFixed(0) + 'M' },
+          grid: { color: '#1e293b' }
+        }
+      }
+    }
+  });
 }
 function setYear(y) { currentYear=y; selectedMonthIdx=null; render(); }
 function setMonth(idx) { selectedMonthIdx=parseInt(idx); render(); }
