@@ -1307,15 +1307,17 @@ async function loadData(showStatus) {
     if (mainLoaded) {
       const jobs = [];
 
-      if (Object.keys(PRODUCT_MAP).length === 0) {
-        dbg('── 2) 상품 데이터 없음 → cashflow 시트 병렬 탐색');
+      // 강제 새로고침(showStatus) 또는 최초 로딩 시 항상 cashflow 시트 재로드
+      if (showStatus || Object.keys(PRODUCT_MAP).length === 0) {
+        dbg('── 2) cashflow 시트 로드 (캠페인 타임라인 갱신)');
+        CAMPAIGN_DATA = []; // 캐시 초기화
         jobs.push(
           loadProductData(sheetId).then(found => { if (found) render(); })
         );
       }
 
       dbg('── 3) 매출정산 시트(gid='+TAX_GID+') 병렬 로드');
-      const taxUrl = 'https://docs.google.com/spreadsheets/d/'+sheetId+'/gviz/tq?gid='+TAX_GID;
+      const taxUrl = 'https://docs.google.com/spreadsheets/d/'+sheetId+'/gviz/tq?gid='+TAX_GID+'&_='+Date.now();
       jobs.push(
         loadJSONP(taxUrl, 15000).then(rawTaxResp => {
           if (rawTaxResp && rawTaxResp.table) {
@@ -1330,7 +1332,7 @@ async function loadData(showStatus) {
       );
 
       dbg('── 4) 인플 지급 시트(gid='+INFLU_PAY_GID+') 병렬 로드');
-      const influUrl = 'https://docs.google.com/spreadsheets/d/'+sheetId+'/gviz/tq?gid='+INFLU_PAY_GID;
+      const influUrl = 'https://docs.google.com/spreadsheets/d/'+sheetId+'/gviz/tq?gid='+INFLU_PAY_GID+'&_='+Date.now();
       jobs.push(
         loadJSONP(influUrl, 15000).then(rawInfluResp => {
           if (rawInfluResp && rawInfluResp.table) {
