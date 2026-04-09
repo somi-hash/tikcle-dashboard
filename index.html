@@ -840,7 +840,7 @@ function parseGvizResponse(response, forceType) {
         if (campName) {
           if (!campaignTimeline) campaignTimeline = [];
           const campStatus = String(val(11)).trim(); // L열=캠페인 마감 여부
-          campaignTimeline.push({campaign:campName, client, brand, product, squad, country, item, year, month, gp, discStart, discEnd, shipStart, recStart, recEnd, contractEnd, tgtAccept, tgtShip, tgtRec, actualRecEnd, campStatus});
+          campaignTimeline.push({campaign:campName, client, brand, product, squad, country, item, year, month, gp, inAmt, outAmt, discStart, discEnd, shipStart, recStart, recEnd, contractEnd, tgtAccept, tgtShip, tgtRec, actualRecEnd, campStatus});
         }
       }
       for (const a of Object.values(aggMap)) {
@@ -1166,7 +1166,7 @@ function parseCashflowForProducts(response) {
         const are = numColsCheck ? dateVal2(34) : null;
         const ta = numColsCheck ? numVal2(31) : 0, ts = numColsCheck ? numVal2(32) : 0, tr = numColsCheck ? numVal2(33) : 0;
         const campStatus = String(val(11)).trim(); // L열=캠페인 마감 여부
-        campList.push({campaign:campName, client, brand, product, squad, country, item, year, month, gp, discStart:ds, discEnd:de, shipStart:ss, recStart:rs, recEnd:re, contractEnd:ce, tgtAccept:ta, tgtShip:ts, tgtRec:tr, actualRecEnd:are, campStatus});
+        campList.push({campaign:campName, client, brand, product, squad, country, item, year, month, gp, inAmt, outAmt, discStart:ds, discEnd:de, shipStart:ss, recStart:rs, recEnd:re, contractEnd:ce, tgtAccept:ta, tgtShip:ts, tgtRec:tr, actualRecEnd:are, campStatus});
       }
     }
     // Array 형태로 변환 (GP 내림차순 정렬)
@@ -1473,6 +1473,16 @@ async function gasUpdateStatus(campaign, client, status) {
     document.body.appendChild(script); // head 대신 body: 일부 브라우저 head onerror 방지
   });
 }
+// ─── 포트폴리오 캠페인 세부 토글 ─────────────────────────────────
+function togglePortfolioDetail(eid) {
+  const row = document.getElementById('port-detail-' + eid);
+  const arrow = document.getElementById('port-arrow-' + eid);
+  if (!row) return;
+  const isOpen = row.style.display !== 'none';
+  row.style.display = isOpen ? 'none' : 'table-row';
+  if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
+}
+
 // ─── 상태 배지 클릭 → 드롭다운 수정 ──────────────────────────────
 // brand/year/month/product/country/item 은 타임라인 미등록 테이블에서만 전달 (노TL 전용 + 버튼용)
 async function openStatusEdit(uid, campaign, client, current, brand, year, month, product, country, item) {
@@ -2772,15 +2782,99 @@ function render() {
         <table>
           <thead><tr><th>고객사</th><th>브랜드</th><th>담당</th><th>상태</th><th style="text-align:right">수취예정(매출)</th><th style="text-align:right">매출총이익</th><th style="text-align:right">이익률</th><th style="text-align:right">전월 대비</th><th>상품</th></tr></thead>
           <tbody>
-            ${port.active.map(c=>{
-              const badgeCls = c.status==='N'?'badge-new':c.status==='R'?'badge-re':'badge-cont';
-              const badgeTxt = c.status==='N'?'신규':c.status==='R'?'복귀':'기존';
-              const rowCls = c.status==='N'?'new-row':c.status==='R'?'new-row':'';
-              const chgCol = c.chg!==null?'<span class="'+(c.chg>=0?'up':'down')+'">'+(c.chg>=0?'▲':'▼')+' '+fmt(Math.abs(c.chg))+'</span>':(c.status==='N'?'<span style="color:#6ee7b7;font-weight:500">NEW</span>':'<span style="color:#7dd3fc;font-weight:500">RE</span>');
-              const marginRate = c.inAmt > 0 ? (c.gp/c.inAmt*100) : 0;
-              const marginColor = marginRate >= 30 ? '#4ade80' : marginRate >= 15 ? '#fbbf24' : '#f87171';
-              return '<tr class="'+rowCls+' portfolio-row" data-customer="'+c.name+'" onclick="openCommentPanel(\''+c.name.replace(/'/g,"\\'")+'\',\''+c.brand.replace(/'/g,"\\\'")+'\')">'+'<td style="font-weight:500;color:#f8fafc">'+c.name+'</td><td style="color:#94a3b8">'+c.brand+'</td><td style="color:#94a3b8">'+c.squad+'</td><td><span class="badge '+badgeCls+'">'+badgeTxt+'</span></td><td style="text-align:right;color:#22d3ee">'+fmtW(c.inAmt||0)+'</td><td style="text-align:right;color:'+(c.gp>=0?'#e2e8f0':'#f87171')+';font-weight:600">'+fmtW(c.gp)+'</td><td style="text-align:right;color:'+marginColor+';font-weight:600">'+marginRate.toFixed(1)+'%</td><td style="text-align:right">'+chgCol+'</td><td>'+renderProdTags(c.name,c.brand,c.squad,am?.year||'',am?.month||0)+'</td></tr>';
-            }).join('')}
+            ${(()=>{
+              // ── 선택된 월의 CAMPAIGN_DATA를 고객사별로 그룹핑 ──
+              const selYr2 = String(am?.year||'').replace(/^20/,''); // "2026" → "26"
+              const selMo  = parseInt(am?.month||0);
+              const clientCamps = {};
+              if (CAMPAIGN_DATA && selYr2 && selMo) {
+                CAMPAIGN_DATA.forEach(d => {
+                  const dy = String(d.year||'').replace(/^20/,'');
+                  if (dy !== selYr2 || parseInt(d.month) !== selMo) return;
+                  if (!clientCamps[d.client]) clientCamps[d.client] = [];
+                  clientCamps[d.client].push(d);
+                });
+              }
+              const normStV = s => String(s||'').trim()
+                .replace(/^운영\s*중[\s\S]*$/,'운영 중').replace(/^운영\s*전[\s\S]*$/,'운영 전')
+                .replace(/^마감[\s\S]*$/,'마감').replace(/^홀딩[\s\S]*$/,'홀딩');
+              const stBadge = s => {
+                const v=normStV(s);
+                const sm={'운영 전':{bg:'#422006',co:'#fbbf24'},'운영 중':{bg:'#14532d',co:'#4ade80'},'마감':{bg:'#1e293b',co:'#94a3b8'},'홀딩':{bg:'#3b1c1c',co:'#f87171'}};
+                const m=sm[v]; if(!v||!m) return '<span style="color:#475569;font-size:10px">—</span>';
+                return '<span style="padding:1px 6px;border-radius:8px;background:'+m.bg+';color:'+m.co+';font-size:10px;font-weight:600;display:inline-block">'+v+'</span>';
+              };
+              return port.active.map((c,ci)=>{
+                const badgeCls = c.status==='N'?'badge-new':c.status==='R'?'badge-re':'badge-cont';
+                const badgeTxt = c.status==='N'?'신규':c.status==='R'?'복귀':'기존';
+                const rowCls = (c.status==='N'||c.status==='R')?'new-row':'';
+                const chgCol = c.chg!==null?'<span class="'+(c.chg>=0?'up':'down')+'">'+(c.chg>=0?'▲':'▼')+' '+fmt(Math.abs(c.chg))+'</span>':(c.status==='N'?'<span style="color:#6ee7b7;font-weight:500">NEW</span>':'<span style="color:#7dd3fc;font-weight:500">RE</span>');
+                const marginRate = c.inAmt>0?(c.gp/c.inAmt*100):0;
+                const marginColor = marginRate>=30?'#4ade80':marginRate>=15?'#fbbf24':'#f87171';
+                const eid = 'pd_'+ci;
+                // 캠페인 그룹 (campaign명 기준 합산)
+                const allCamps = clientCamps[c.name]||[];
+                const cg={};
+                allCamps.forEach(d=>{
+                  const k=d.campaign||(d.brand+'_'+d.product+'_'+(d.country||''));
+                  if(!cg[k]) cg[k]={campaign:d.campaign||'',brand:d.brand||'',product:d.product||'',country:d.country||'',item:d.item||'',campStatus:d.campStatus||'',inAmt:0,outAmt:0,gp:0};
+                  cg[k].inAmt+=(d.inAmt||0); cg[k].outAmt+=(d.outAmt||0); cg[k].gp+=(d.gp||0);
+                  if(d.country){cg[k].country=d.country;cg[k].item=d.item||'';}
+                  if(d.campStatus) cg[k].campStatus=d.campStatus;
+                });
+                const campRows=Object.values(cg);
+                const hasMulti=campRows.length>1;
+                const showDetail=campRows.length>0;
+                const multiTag=hasMulti?' <span style="font-size:9px;background:#312e81;color:#a5b4fc;border:1px solid #4338ca;border-radius:8px;padding:1px 5px;font-weight:700;vertical-align:middle">+'+campRows.length+'</span>':'';
+                const arrowSpan=showDetail?' <span id="port-arrow-'+eid+'" style="font-size:8px;color:#475569;margin-left:2px">▶</span>':'';
+                // 메인 행
+                const mainRow='<tr class="'+rowCls+' portfolio-row" style="cursor:'+(showDetail?'pointer':'default')+'" '+(showDetail?'onclick="togglePortfolioDetail(\''+eid+'\')"':'')+'>'+
+                  '<td style="font-weight:500;color:#f8fafc">'+c.name+multiTag+arrowSpan+'</td>'+
+                  '<td style="color:#94a3b8">'+c.brand+'</td>'+
+                  '<td style="color:#94a3b8">'+c.squad+'</td>'+
+                  '<td><span class="badge '+badgeCls+'">'+badgeTxt+'</span></td>'+
+                  '<td style="text-align:right;color:#22d3ee">'+fmtW(c.inAmt||0)+'</td>'+
+                  '<td style="text-align:right;color:'+(c.gp>=0?'#e2e8f0':'#f87171')+';font-weight:600">'+fmtW(c.gp)+'</td>'+
+                  '<td style="text-align:right;color:'+marginColor+';font-weight:600">'+marginRate.toFixed(1)+'%</td>'+
+                  '<td style="text-align:right">'+chgCol+'</td>'+
+                  '<td>'+renderProdTags(c.name,c.brand,c.squad,am?.year||'',am?.month||0)+'</td>'+
+                  '</tr>';
+                // 확장 세부 행
+                let detailRow='';
+                if(showDetail){
+                  const subRows=campRows.map(d=>{
+                    const dm=d.inAmt>0?(d.gp/d.inAmt*100):0;
+                    const dc=dm>=30?'#4ade80':dm>=15?'#fbbf24':'#f87171';
+                    return '<tr style="border-top:1px solid #1e293b44">'+
+                      '<td style="padding:5px 8px 5px 22px;color:#94a3b8;font-size:11px">'+d.brand+'<span style="color:#475569;font-size:10px;margin-left:5px">'+d.product+'</span></td>'+
+                      '<td style="padding:5px 6px;color:#64748b;font-size:10px">'+d.country+'</td>'+
+                      '<td style="padding:5px 6px;color:#64748b;font-size:10px">'+d.item+'</td>'+
+                      '<td style="padding:5px 6px;text-align:right;color:#22d3ee;font-size:11px">'+fmtW(d.inAmt)+'</td>'+
+                      '<td style="padding:5px 6px;text-align:right;color:#f87171;font-size:11px">'+fmtW(d.outAmt)+'</td>'+
+                      '<td style="padding:5px 6px;text-align:right;color:'+(d.gp>=0?'#e2e8f0':'#f87171')+';font-size:11px;font-weight:600">'+fmtW(d.gp)+'</td>'+
+                      '<td style="padding:5px 6px;text-align:right;color:'+dc+';font-size:11px">'+dm.toFixed(1)+'%</td>'+
+                      '<td style="padding:5px 6px">'+stBadge(d.campStatus)+'</td>'+
+                      '</tr>';
+                  }).join('');
+                  detailRow='<tr id="port-detail-'+eid+'" style="display:none">'+
+                    '<td colspan="9" style="padding:0;background:#070e1a;border-left:3px solid #334155">'+
+                    '<table style="width:100%;border-collapse:collapse">'+
+                    '<thead><tr style="background:#0d1929;border-bottom:1px solid #1e293b">'+
+                    '<th style="padding:4px 8px 4px 22px;text-align:left;color:#334155;font-size:10px;white-space:nowrap">브랜드 · 상품</th>'+
+                    '<th style="padding:4px 6px;text-align:left;color:#334155;font-size:10px">국가</th>'+
+                    '<th style="padding:4px 6px;text-align:left;color:#334155;font-size:10px">제품명</th>'+
+                    '<th style="padding:4px 6px;text-align:right;color:#334155;font-size:10px">수취금액</th>'+
+                    '<th style="padding:4px 6px;text-align:right;color:#334155;font-size:10px">비용</th>'+
+                    '<th style="padding:4px 6px;text-align:right;color:#334155;font-size:10px">총이익</th>'+
+                    '<th style="padding:4px 6px;text-align:right;color:#334155;font-size:10px">이익률</th>'+
+                    '<th style="padding:4px 6px;text-align:left;color:#334155;font-size:10px">운영상태</th>'+
+                    '</tr></thead>'+
+                    '<tbody>'+subRows+'</tbody>'+
+                    '</table></td></tr>';
+                }
+                return mainRow+detailRow;
+              }).join('');
+            })()}
           </tbody>
         </table>
         ${port.ended.length>0?'<div class="ended-panel"><h3>⚠️ 이번 달 종료/이탈 고객사 ('+port.ended.length+'개)</h3><div class="ended-tags">'+port.ended.map(c=>'<div class="ended-tag"><span style="color:#fca5a5;font-weight:600">'+c.name+'</span><span style="color:#94a3b8;margin-left:8px">'+c.brand+'</span><span style="color:#f87171;margin-left:8px">-'+fmt(Math.abs(c.gp))+'</span></div>').join('')+'</div></div>':''}
