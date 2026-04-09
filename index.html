@@ -703,15 +703,21 @@ function parseSettlementResponse(response) {
       const lbl = (cols[i].label||'').trim();
       if (lbl === '세발' || (lbl.includes('세발') && !lbl.includes('금액') && !lbl.includes('증빙'))) { iSebal = i; break; }
     }
-    // 헤더 매칭 실패 시 → O열(인덱스 14)로 폴백
-    if (iSebal < 0 && cols.length > 14) iSebal = 14;
+    // [정산]거래처 시트: D=거래처(3), E=브랜드(4), M=세발금액VAT+(12), N=발행기준일(13), O=세발여부(14)
+    // 헤더 매칭 실패 시 고정 인덱스로 폴백
+    if (iClient < 0 && cols.length > 3)    iClient = 3;   // D열
+    if (iBrand  < 0 && cols.length > 4)    iBrand  = 4;   // E열
+    if (iTaxIn  < 0 && cols.length > 12)   iTaxIn  = 12;  // M열
+    if (iIssueDate < 0 && cols.length > 13) { /* 아래에서 재시도 */ }
+    if (iSebal  < 0 && cols.length > 14)   iSebal  = 14;  // O열
     const iPayDue = findColIndex(cols, ['입금예정일']);
     const iPaid = findColIndex(cols, ['입금여부']);
     if (typeof dbg === 'function') {
-      dbg('📋 매출정산 헤더('+cols.length+'열): '+cols.slice(0,20).map((c,i)=>i+':'+((c.label||'').trim()||'?')).join(', '));
-      dbg('📋 매출정산 컬럼매핑: ym='+iYM+' camp='+iCamp+' client='+iClient+' settle='+iSettle+' taxEx='+iTaxEx+' taxIn='+iTaxIn+' sebal='+iSebal+' payDue='+iPayDue+' paid='+iPaid);
+      dbg('📋 [정산]거래처 헤더('+cols.length+'열): '+cols.slice(0,20).map((c,i)=>i+':'+((c.label||'').trim()||'?')).join(', '));
+      dbg('📋 컬럼매핑: client='+iClient+'(D) brand='+iBrand+'(E) taxIn='+iTaxIn+'(M) issueDate='+iIssueDate+'(N) sebal='+iSebal+'(O)');
     }
-    if (iYM < 0 || iClient < 0) { if (typeof dbg === 'function') dbg('❌ 매출정산 필수 열 누락'); return null; }
+    // iClient가 없으면 최소한 index 3(D열)으로 강제 설정
+    if (iClient < 0) iClient = 3;
     for (const row of table.rows) {
       const c = row.c;
       if (!c) continue;
@@ -745,8 +751,11 @@ function parseSettlementResponse(response) {
       const payDueDate = iPayDue >= 0 ? dateVal(iPayDue) : '';
       const paidRaw = iPaid >= 0 ? val(iPaid) : '';
       const paid = paidRaw === true || paidRaw === 'TRUE' || paidRaw === 'true' || paidRaw === '1' || paidRaw === 1;
-      if (!ym || !client) continue;
-      if (taxAmtEx === 0 && taxAmtIn === 0 && !issueDate && !invoiceInfo) continue;
+      if (!client) continue;
+      // 세발여부(O열)=TRUE인 행만 수취 현금흐름으로 인식
+      if (!invoiceInfo) continue;
+      // VAT포함 세발금액(M열) 또는 발행기준일(N열) 중 하나는 있어야 의미있는 행
+      if (taxAmtIn === 0 && !issueDate) continue;
       data.push({ym, campaign, client, brand, squad, year, month, settleType, taxAmtEx, taxAmtIn, issueDate, invoiceInfo, payDueDate, paid});
     }
     if (typeof dbg === 'function') dbg('✅ 매출정산 파싱: '+data.length+'건');
@@ -2468,37 +2477,66 @@ function renderProductCharts(pa, midx) {
     const d = pa.data[ym] || {};
     const totalCnt = prods.reduce((s,p)=>s+(d[p]?.count||0), 0);
     const totalGP  = prods.reduce((s,p)=>s+Math.max(0,d[p]?.gp||0), 0);
+
     const countRows = prods.map((p,i)=>{
       const cnt=(d[p]?.count||0);
       const pct=totalCnt?(cnt/totalCnt*100).toFixed(1):'0.0';
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #0f1f30">'+
-        '<span style="color:'+colors[i]+';font-weight:600;min-width:80px">'+p+'</span>'+
-        '<span style="color:#e2e8f0">'+cnt+'건</span>'+
-        '<span style="color:#94a3b8;min-width:50px;text-align:right">('+pct+'%)</span></div>';
+      const barW=totalCnt?Math.round(cnt/totalCnt*100):0;
+      return '<div style="padding:5px 0">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">'+
+          '<span style="color:'+colors[i]+';font-size:12px;font-weight:700">'+p+'</span>'+
+          '<span style="color:#e2e8f0;font-size:12px;font-weight:600">'+cnt+'건 <span style="color:#64748b;font-size:11px;font-weight:400">'+pct+'%</span></span>'+
+        '</div>'+
+        '<div style="background:#0f1f30;border-radius:3px;height:5px;overflow:hidden">'+
+          '<div style="background:'+colors[i]+';height:100%;width:'+barW+'%;border-radius:3px;transition:width .3s ease"></div>'+
+        '</div>'+
+      '</div>';
     }).join('');
+
     const gpRows = prods.map((p,i)=>{
       const gp=Math.max(0,d[p]?.gp||0);
       const pct=totalGP?(gp/totalGP*100).toFixed(1):'0.0';
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #0f1f30">'+
-        '<span style="color:'+colors[i]+';font-weight:600;min-width:80px">'+p+'</span>'+
-        '<span style="color:#22d3ee">'+fmtW(gp)+'</span>'+
-        '<span style="color:#94a3b8;min-width:50px;text-align:right">('+pct+'%)</span></div>';
-    }).join('');
-    box.innerHTML =
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'+
-        '<span style="color:#94a3b8;font-size:12px;font-weight:600">📅 '+ym+'</span>'+
-        '<span style="color:#334155;font-size:10px">막대 위에 마우스를 올려 월별 비중 확인</span>'+
-      '</div>'+
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">'+
-        '<div>'+
-          '<div style="color:#64748b;font-size:10px;font-weight:600;letter-spacing:.5px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #1e293b">운영 건수 비중</div>'+
-          countRows+
-          '<div style="text-align:right;color:#475569;font-size:10px;margin-top:4px">합계 '+totalCnt+'건</div>'+
+      const barW=totalGP?Math.round(gp/totalGP*100):0;
+      return '<div style="padding:5px 0">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">'+
+          '<span style="color:'+colors[i]+';font-size:12px;font-weight:700">'+p+'</span>'+
+          '<span style="color:#22d3ee;font-size:12px;font-weight:600">'+fmtW(gp)+' <span style="color:#64748b;font-size:11px;font-weight:400">'+pct+'%</span></span>'+
         '</div>'+
-        '<div>'+
-          '<div style="color:#64748b;font-size:10px;font-weight:600;letter-spacing:.5px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #1e293b">매출 총이익 비중</div>'+
+        '<div style="background:#0f1f30;border-radius:3px;height:5px;overflow:hidden">'+
+          '<div style="background:'+colors[i]+';height:100%;width:'+barW+'%;border-radius:3px;transition:width .3s ease"></div>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+
+    box.innerHTML =
+      // 헤더 영역
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #1e293b">'+
+        '<div style="display:flex;align-items:center;gap:8px">'+
+          '<span style="background:#0ea5e922;color:#38bdf8;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;border:1px solid #0ea5e944">📅 '+ym+'</span>'+
+          '<span style="color:#475569;font-size:11px">막대 위에 마우스를 올려 확인</span>'+
+        '</div>'+
+        '<div style="display:flex;gap:16px">'+
+          '<div style="text-align:right">'+
+            '<div style="color:#64748b;font-size:10px;margin-bottom:1px">총 운영 건수</div>'+
+            '<div style="color:#e2e8f0;font-size:15px;font-weight:700">'+totalCnt+'<span style="color:#64748b;font-size:11px;font-weight:400">건</span></div>'+
+          '</div>'+
+          '<div style="width:1px;background:#1e293b"></div>'+
+          '<div style="text-align:right">'+
+            '<div style="color:#64748b;font-size:10px;margin-bottom:1px">총 매출총이익</div>'+
+            '<div style="color:#22d3ee;font-size:15px;font-weight:700">'+fmtW(totalGP)+'</div>'+
+          '</div>'+
+        '</div>'+
+      '</div>'+
+      // 2컬럼 그리드
+      '<div style="display:grid;grid-template-columns:1fr 1px 1fr;gap:0">'+
+        '<div style="padding-right:20px">'+
+          '<div style="color:#94a3b8;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;margin-bottom:8px">📊 운영 건수 비중</div>'+
+          countRows+
+        '</div>'+
+        '<div style="background:#1e293b;margin:0 4px"></div>'+
+        '<div style="padding-left:20px">'+
+          '<div style="color:#94a3b8;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;margin-bottom:8px">💰 매출총이익 비중</div>'+
           gpRows+
-          '<div style="text-align:right;color:#475569;font-size:10px;margin-top:4px">합계 '+fmtW(totalGP)+'</div>'+
         '</div>'+
       '</div>';
   }
@@ -3502,17 +3540,26 @@ function render() {
           '</div></div>';
         // ══ 캠페인별 탭 ══
         if (cashflowSubTab === 'campaign') {
-          if (!hasCamp) return headerHTML+'<div class="card"><p style="text-align:center;padding:30px;color:#94a3b8">캠페인 데이터를 불러오는 중입니다...</p></div>';
-          // ── 고객사+브랜드 기준 집계 ──
+          if (!hasIn && !hasOut) return headerHTML+'<div class="card"><p style="text-align:center;padding:30px;color:#94a3b8">데이터를 불러오는 중입니다...<br><span style="font-size:11px;color:#475569">[정산]거래처 · [정산]인플 시트 연동 필요</span></p></div>';
+          // ── 고객사+브랜드 기준 집계 ([정산]거래처=수취, [정산]인플=지급) ──
           const cg = {};
-          CAMPAIGN_DATA.forEach(d => {
-            const dy = String(d.year||'').replace(/^20/,'');
-            if (yflt !== 'all' && dy !== yflt) return;
-            const k = (d.client||'')+'__'+(d.brand||'');
-            if (!cg[k]) cg[k] = {key:k, client:d.client||'', brand:d.brand||'', inAmt:0, outAmt:0};
-            cg[k].inAmt += (d.inAmt||0); cg[k].outAmt += (d.outAmt||0);
+          // 수취: TAX_DATA (세발여부=TRUE, issueDate 기준)
+          if (hasIn) TAX_DATA.forEach(d => {
+            if (!d.issueDate) return;
+            const ym = String(d.issueDate).slice(0,7);
+            if (!matchYear(ym)) return;
+            const k = (d.client||'').trim()+'__'+(d.brand||'').trim();
+            if (!cg[k]) cg[k] = {key:k, client:(d.client||'').trim(), brand:(d.brand||'').trim(), inAmt:0, outAmt:0};
+            cg[k].inAmt += (d.taxAmtIn||0);
           });
-          const cl = Object.values(cg).sort((a,b)=>b.inAmt-a.inAmt);
+          // 지급: INFLU_PAY_DATA (지급일자 기준)
+          if (hasOut) INFLU_PAY_DATA.forEach(p => {
+            if (!p.ym || !matchYear(p.ym)) return;
+            const k = (p.client||'').trim()+'__'+(p.brand||'').trim();
+            if (!cg[k]) cg[k] = {key:k, client:(p.client||'').trim(), brand:(p.brand||'').trim(), inAmt:0, outAmt:0};
+            cg[k].outAmt += (p.amt||0);
+          });
+          const cl = Object.values(cg).filter(c=>c.client).sort((a,b)=>b.inAmt-a.inAmt);
           const tIn=cl.reduce((s,c)=>s+c.inAmt,0), tOut=cl.reduce((s,c)=>s+c.outAmt,0), tNet=tIn-tOut;
           const tMr = tIn>0?((tIn-tOut)/tIn*100):0;
           // ── 연월별 상세 빌더 (TAX_DATA 수취 + INFLU_PAY_DATA 지급) ──
@@ -3569,12 +3616,12 @@ function render() {
           };
           let ch = '';
           ch += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">';
-          ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유입(수취)</div><div style="font-size:22px;font-weight:700;color:#60a5fa">'+fmt(tIn)+'</div><div style="font-size:10px;color:#475569;margin-top:2px">cashflow 기준</div></div>';
-          ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유출(지급)</div><div style="font-size:22px;font-weight:700;color:#f87171">'+fmt(tOut)+'</div><div style="font-size:10px;color:#475569;margin-top:2px">cashflow 기준</div></div>';
-          ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">순현금</div><div style="font-size:22px;font-weight:700;color:'+colorNet(tNet)+'">'+fmtSigned(tNet)+'</div></div>';
+          ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유입(수취)</div><div style="font-size:22px;font-weight:700;color:#60a5fa">'+fmt(tIn)+'</div><div style="font-size:10px;color:#475569;margin-top:2px">[정산]거래처 세발 발행기준</div></div>';
+          ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유출(지급)</div><div style="font-size:22px;font-weight:700;color:#f87171">'+fmt(tOut)+'</div><div style="font-size:10px;color:#475569;margin-top:2px">[정산]인플 지급일자 기준</div></div>';
+          ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">순현금</div><div style="font-size:22px;font-weight:700;color:'+colorNet(tNet)+'">'+fmtSigned(tNet)+'</div><div style="font-size:10px;color:#475569;margin-top:2px">수취 - 지급</div></div>';
           ch += '</div>';
-          ch += '<div class="card"><div style="font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:4px">캠페인별 현금흐름 <span style="font-size:11px;color:#64748b;font-weight:400">· cashflow 시트 수취/지급 기준 · 총 '+cl.length+'건</span></div>';
-          ch += '<p style="color:#475569;font-size:11px;margin-bottom:12px">행 클릭 시 연월별 수취(발행일 기준) / 지급(지급일 기준) 추이 확인</p>';
+          ch += '<div class="card"><div style="font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:4px">캠페인별 현금흐름 <span style="font-size:11px;color:#64748b;font-weight:400">· [정산]거래처 세발기준 수취 · [정산]인플 지급일자 기준 · 총 '+cl.length+'건</span></div>';
+          ch += '<p style="color:#475569;font-size:11px;margin-bottom:12px">행 클릭 시 연월별 수취(세발 발행기준) / 지급(지급일자 기준) 추이 확인</p>';
           ch += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
           ch += '<thead><tr style="border-bottom:1px solid #334155;color:#64748b"><th style="text-align:left;padding:7px 8px">고객사</th><th style="text-align:left;padding:7px 6px">브랜드</th><th style="text-align:right;padding:7px 8px">유입(수취)</th><th style="text-align:right;padding:7px 8px">유출(지급)</th><th style="text-align:right;padding:7px 8px">순현금 / 이익률</th></tr></thead><tbody>';
           cl.forEach((c,ci) => {
@@ -3895,18 +3942,24 @@ function render() {
         <div id="prod-charts-content" style="display:${pa.hasProds?'block':'none'}">
           <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:2px">${prodLegendHTML}</div>
           <!-- 스택 막대 2개 나란히 -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:14px">
-            <div>
-              <p style="color:#64748b;font-size:12px;margin-bottom:8px">📊 운영 건수 연간 추이</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">
+            <div style="background:#071525;border:1px solid #1e293b;border-radius:10px;padding:14px 16px">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+                <span style="font-size:13px">📊</span>
+                <span style="color:#cbd5e1;font-size:12px;font-weight:600">운영 건수 연간 추이</span>
+              </div>
               <div style="height:220px"><canvas id="prodStackCount"></canvas></div>
             </div>
-            <div>
-              <p style="color:#64748b;font-size:12px;margin-bottom:8px">💰 매출총이익 연간 추이</p>
+            <div style="background:#071525;border:1px solid #1e293b;border-radius:10px;padding:14px 16px">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+                <span style="font-size:13px">💰</span>
+                <span style="color:#cbd5e1;font-size:12px;font-weight:600">매출총이익 연간 추이</span>
+              </div>
               <div style="height:220px"><canvas id="prodStackGP"></canvas></div>
             </div>
           </div>
           <!-- 호버 비중 박스 -->
-          <div id="prodHoverBox" style="background:#071525;border:1px solid #1e293b;border-radius:10px;padding:14px 18px;margin-bottom:28px">
+          <div id="prodHoverBox" style="background:#071525;border:1px solid #1e293b;border-radius:10px;padding:16px 20px;margin-bottom:28px">
             <div style="color:#334155;font-size:11px;text-align:center;padding:8px 0">막대 위에 마우스를 올리면 해당 월의 상품별 비중이 표시됩니다</div>
           </div>
           <div style="border-top:1px solid #1e293b;margin-bottom:24px"></div>
