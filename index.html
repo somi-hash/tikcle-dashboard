@@ -2578,8 +2578,8 @@ let currentTab = 'overview';
 let currentProdSub = 'count';
 let currentCsmSub = 'revenue';
 let campCsmFilter = 'all'; // 'all' or CSM name
-let cashflowYearFilter = 'all'; // 현금흐름 연도 필터: '25','26','all'
 let cashflowSubTab = 'monthly';  // 현금흐름 서브탭: 'monthly','campaign'
+let expandedCampKey = null;      // 캠페인 탭 펼쳐진 행 키
 function render() {
   const data = processData(currentYear);
   const {monthly, waterfall, getPortfolio, getCSMData, getHeatmap, getProductAnalysis, getCSMCalendar, totalGP} = data;
@@ -3474,7 +3474,8 @@ function render() {
         if (!hasIn && !hasOut && !hasCamp) {
           return '<div class="card"><p style="text-align:center;padding:40px;color:#94a3b8">현금흐름 데이터를 불러오는 중입니다...<br><span style="font-size:12px">매출정산 시트의 발행기준일과 인플 지급 시트(gid='+INFLU_PAY_GID+')의 지급일자가 필요합니다.</span></p></div>';
         }
-        const yflt = cashflowYearFilter;
+        // 상단 공통 연도 필터(currentYear) 그대로 사용
+        const yflt = currentYear; // '25','26','all'
         const matchYear = (ym) => {
           if (!ym) return false;
           if (yflt === 'all') return true;
@@ -3488,12 +3489,7 @@ function render() {
         const colorNet = (n) => n >= 0 ? '#4ade80' : '#f87171';
         const today = new Date();
         const curYm = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0');
-        // ── 공통 헤더 (연도 필터 + 서브탭) ──
-        const yrBtns = ['25','26','all'].map(y => {
-          const label = y==='25'?'2025':y==='26'?'2026':'전체';
-          const act = yflt===y;
-          return '<button onclick="setCashflowYear(\''+y+'\')" style="padding:4px 12px;border-radius:6px;border:none;font-size:12px;cursor:pointer;'+(act?'background:#4f46e5;color:#fff':'background:#1e293b;color:#94a3b8')+'">'+label+'</button>';
-        }).join('');
+        // ── 헤더 (서브탭만) ──
         const subBtns = [['monthly','📅 월별'],['campaign','🏷 캠페인별']].map(([t,label]) => {
           const act = cashflowSubTab===t;
           return '<button onclick="switchCashflowTab(\''+t+'\')" style="padding:5px 14px;border-radius:7px;border:'+(act?'1px solid #4f46e5':'1px solid transparent')+';background:'+(act?'#0f172a':'transparent')+';color:'+(act?'#e2e8f0':'#64748b')+';font-size:12px;cursor:pointer">'+label+'</button>';
@@ -3502,58 +3498,104 @@ function render() {
           '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'+
             '<div><h2 style="margin-bottom:2px;font-size:15px">💸 현금흐름</h2>'+
             '<p style="color:#64748b;font-size:11px">매출 세발 발행기준 유입 · 인플 지급일자 기준 유출</p></div>'+
-            '<div style="display:flex;gap:8px;align-items:center">'+
-              '<div style="display:flex;gap:4px">'+yrBtns+'</div>'+
-              '<div style="display:flex;gap:2px;background:#0a1628;border-radius:8px;padding:3px">'+subBtns+'</div>'+
-            '</div>'+
+            '<div style="display:flex;gap:2px;background:#0a1628;border-radius:8px;padding:3px">'+subBtns+'</div>'+
           '</div></div>';
         // ══ 캠페인별 탭 ══
         if (cashflowSubTab === 'campaign') {
           if (!hasCamp) return headerHTML+'<div class="card"><p style="text-align:center;padding:30px;color:#94a3b8">캠페인 데이터를 불러오는 중입니다...</p></div>';
+          // ── 고객사+브랜드 기준 집계 ──
           const cg = {};
           CAMPAIGN_DATA.forEach(d => {
             const dy = String(d.year||'').replace(/^20/,'');
             if (yflt !== 'all' && dy !== yflt) return;
-            const k = d.campaign||((d.client||'')+'__'+(d.brand||'')+'__'+(d.product||'')+'__'+(d.country||''));
-            if (!cg[k]) cg[k] = {client:d.client||'',brand:d.brand||'',squad:d.squad||'',year:d.year||'',month:d.month||'',inAmt:0,outAmt:0};
+            const k = (d.client||'')+'__'+(d.brand||'');
+            if (!cg[k]) cg[k] = {key:k, client:d.client||'', brand:d.brand||'', inAmt:0, outAmt:0};
             cg[k].inAmt += (d.inAmt||0); cg[k].outAmt += (d.outAmt||0);
-            const mk = String(d.year||'')+''+String(d.month||'').padStart(2,'0');
-            const ek = String(cg[k].year||'')+''+String(cg[k].month||'').padStart(2,'0');
-            if (mk > ek) { cg[k].year=d.year; cg[k].month=d.month; }
           });
           const cl = Object.values(cg).sort((a,b)=>b.inAmt-a.inAmt);
           const tIn=cl.reduce((s,c)=>s+c.inAmt,0), tOut=cl.reduce((s,c)=>s+c.outAmt,0), tNet=tIn-tOut;
           const tMr = tIn>0?((tIn-tOut)/tIn*100):0;
+          // ── 연월별 상세 빌더 (TAX_DATA 수취 + INFLU_PAY_DATA 지급) ──
+          const buildCampDetail = (client, brand, rowKey) => {
+            const mIn={}, mOut={};
+            if (hasIn) TAX_DATA.forEach(d => {
+              if (!d.issueDate) return;
+              if ((d.client||'').trim()!==client||(d.brand||'').trim()!==brand) return;
+              const ym=String(d.issueDate).slice(0,7);
+              if (!ym||ym.length!==7||!matchYear(ym)) return;
+              mIn[ym]=(mIn[ym]||0)+(d.taxAmtIn||0);
+            });
+            if (hasOut) INFLU_PAY_DATA.forEach(p => {
+              if (!p.ym||!matchYear(p.ym)) return;
+              if ((p.client||'').trim()!==client||(p.brand||'').trim()!==brand) return;
+              mOut[p.ym]=(mOut[p.ym]||0)+(p.amt||0);
+            });
+            const allYms=[...new Set([...Object.keys(mIn),...Object.keys(mOut)])].sort();
+            let dh='<tr id="camp-detail-'+rowKey.replace(/[^a-z0-9]/gi,'_')+'"><td colspan="5" style="padding:0;background:#040c18;border-left:4px solid #0ea5e9;border-bottom:1px solid #1e293b">';
+            dh+='<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#071525;border-bottom:1px solid #0f2236">';
+            dh+='<th style="padding:5px 8px 5px 20px;text-align:left;color:#38bdf8;font-size:10px;font-weight:600;letter-spacing:.4px">연월</th>';
+            dh+='<th style="padding:5px 8px;text-align:right;color:#38bdf8;font-size:10px;font-weight:600">수취 (발행일 기준)</th>';
+            dh+='<th style="padding:5px 8px;text-align:right;color:#38bdf8;font-size:10px;font-weight:600">지급 (지급일 기준)</th>';
+            dh+='<th style="padding:5px 8px;text-align:right;color:#38bdf8;font-size:10px;font-weight:600">총이익 (수취-지급)</th>';
+            dh+='</tr></thead><tbody>';
+            if (!allYms.length) {
+              dh+='<tr><td colspan="4" style="padding:12px 20px;color:#475569;font-size:11px">연월별 상세 데이터 없음 (TAX/지급 시트 미연동)</td></tr>';
+            } else {
+              let cumRow=0;
+              allYms.forEach((ym,i)=>{
+                const inn=mIn[ym]||0, out=mOut[ym]||0, net=inn-out;
+                cumRow+=net;
+                const rowBg=i%2===0?'background:#060f1e':'background:#04090f';
+                dh+='<tr style="border-top:1px solid #0d1b2e;'+rowBg+'">';
+                dh+='<td style="padding:5px 8px 5px 20px;color:#94a3b8;font-weight:500">'+ym+'</td>';
+                dh+='<td style="padding:5px 8px;text-align:right;color:#60a5fa">'+(inn>0?fmt(inn):'<span style="color:#334155">—</span>')+'</td>';
+                dh+='<td style="padding:5px 8px;text-align:right;color:#f87171">'+(out>0?fmt(out):'<span style="color:#334155">—</span>')+'</td>';
+                dh+='<td style="padding:5px 8px;text-align:right;font-weight:600;color:'+colorNet(net)+'">'+fmtSigned(net)+'</td>';
+                dh+='</tr>';
+              });
+              // 소계
+              const subIn=Object.values(mIn).reduce((s,v)=>s+v,0);
+              const subOut=Object.values(mOut).reduce((s,v)=>s+v,0);
+              const subNet=subIn-subOut;
+              dh+='<tr style="border-top:2px solid #1e293b;background:#071525">';
+              dh+='<td style="padding:5px 8px 5px 20px;color:#64748b;font-size:10px">소계</td>';
+              dh+='<td style="padding:5px 8px;text-align:right;color:#93c5fd;font-weight:600">'+fmt(subIn)+'</td>';
+              dh+='<td style="padding:5px 8px;text-align:right;color:#fca5a5;font-weight:600">'+fmt(subOut)+'</td>';
+              dh+='<td style="padding:5px 8px;text-align:right;font-weight:700;color:'+colorNet(subNet)+'">'+fmtSigned(subNet)+'</td>';
+              dh+='</tr>';
+            }
+            dh+='</tbody></table></td></tr>';
+            return dh;
+          };
           let ch = '';
           ch += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">';
-          ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유입(수취)</div><div style="font-size:22px;font-weight:700;color:#60a5fa">'+fmt(tIn)+'</div></div>';
-          ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유출(지급)</div><div style="font-size:22px;font-weight:700;color:#f87171">'+fmt(tOut)+'</div></div>';
+          ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유입(수취)</div><div style="font-size:22px;font-weight:700;color:#60a5fa">'+fmt(tIn)+'</div><div style="font-size:10px;color:#475569;margin-top:2px">cashflow 기준</div></div>';
+          ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유출(지급)</div><div style="font-size:22px;font-weight:700;color:#f87171">'+fmt(tOut)+'</div><div style="font-size:10px;color:#475569;margin-top:2px">cashflow 기준</div></div>';
           ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">순현금</div><div style="font-size:22px;font-weight:700;color:'+colorNet(tNet)+'">'+fmtSigned(tNet)+'</div></div>';
           ch += '</div>';
-          ch += '<div class="card"><div style="font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:12px">캠페인별 현금흐름 <span style="font-size:11px;color:#64748b;font-weight:400">· cashflow 시트 수취/지급 기준 · 총 '+cl.length+'건</span></div>';
+          ch += '<div class="card"><div style="font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:4px">캠페인별 현금흐름 <span style="font-size:11px;color:#64748b;font-weight:400">· cashflow 시트 수취/지급 기준 · 총 '+cl.length+'건</span></div>';
+          ch += '<p style="color:#475569;font-size:11px;margin-bottom:12px">행 클릭 시 연월별 수취(발행일 기준) / 지급(지급일 기준) 추이 확인</p>';
           ch += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
-          ch += '<thead><tr style="border-bottom:1px solid #334155;color:#64748b"><th style="text-align:left;padding:7px 6px">고객사</th><th style="text-align:left;padding:7px 6px">브랜드</th><th style="text-align:left;padding:7px 6px">담당</th><th style="text-align:center;padding:7px 6px">기간</th><th style="text-align:right;padding:7px 6px">유입(수취)</th><th style="text-align:right;padding:7px 6px">유출(지급)</th><th style="text-align:right;padding:7px 6px">순현금</th><th style="text-align:right;padding:7px 6px">이익률</th></tr></thead><tbody>';
-          cl.forEach(c => {
+          ch += '<thead><tr style="border-bottom:1px solid #334155;color:#64748b"><th style="text-align:left;padding:7px 8px">고객사</th><th style="text-align:left;padding:7px 6px">브랜드</th><th style="text-align:right;padding:7px 8px">유입(수취)</th><th style="text-align:right;padding:7px 8px">유출(지급)</th><th style="text-align:right;padding:7px 8px">순현금 / 이익률</th></tr></thead><tbody>';
+          cl.forEach((c,ci) => {
             const net=c.inAmt-c.outAmt, mr=c.inAmt>0?(net/c.inAmt*100):0;
             const mc=mr>=30?'#4ade80':mr>=15?'#fbbf24':'#f87171';
-            const period = c.year ? String(c.year).replace(/^20/,'')+'년 '+String(c.month||'')+'월' : '-';
-            ch += '<tr style="border-bottom:1px solid #1e293b">';
-            ch += '<td style="padding:7px 6px;color:#e2e8f0">'+c.client+'</td>';
+            const isExp=expandedCampKey===c.key;
+            const safeKey=c.key.replace(/[^a-z0-9]/gi,'_');
+            ch += '<tr onclick="toggleCampRow(\''+c.key.replace(/'/g,"\\'")+'\')" style="border-bottom:1px solid #1e293b;cursor:pointer;'+(isExp?'background:#172033':'')+'">';
+            ch += '<td style="padding:7px 8px;color:#f8fafc;font-weight:500"><span style="display:inline-block;width:14px;color:#475569;font-size:10px">'+(isExp?'▼':'▶')+'</span> '+c.client+'</td>';
             ch += '<td style="padding:7px 6px;color:#94a3b8">'+c.brand+'</td>';
-            ch += '<td style="padding:7px 6px;color:#64748b">'+c.squad+'</td>';
-            ch += '<td style="padding:7px 6px;text-align:center;color:#94a3b8">'+period+'</td>';
-            ch += '<td style="padding:7px 6px;text-align:right;color:#60a5fa">'+fmt(c.inAmt)+'</td>';
-            ch += '<td style="padding:7px 6px;text-align:right;color:#f87171">'+fmt(c.outAmt)+'</td>';
-            ch += '<td style="padding:7px 6px;text-align:right;font-weight:600;color:'+colorNet(net)+'">'+fmtSigned(net)+'</td>';
-            ch += '<td style="padding:7px 6px;text-align:right;color:'+mc+';font-weight:600">'+mr.toFixed(1)+'%</td>';
+            ch += '<td style="padding:7px 8px;text-align:right;color:#60a5fa">'+fmt(c.inAmt)+'</td>';
+            ch += '<td style="padding:7px 8px;text-align:right;color:#f87171">'+fmt(c.outAmt)+'</td>';
+            ch += '<td style="padding:7px 8px;text-align:right"><span style="font-weight:600;color:'+colorNet(net)+'">'+fmtSigned(net)+'</span> <span style="color:'+mc+';font-size:10px;margin-left:4px">'+mr.toFixed(1)+'%</span></td>';
             ch += '</tr>';
+            if (isExp) ch += buildCampDetail(c.client, c.brand, c.key);
           });
           ch += '<tr style="border-top:2px solid #334155;font-weight:700">';
-          ch += '<td colspan="4" style="padding:8px 6px;color:#cbd5e1">합계</td>';
-          ch += '<td style="padding:8px 6px;text-align:right;color:#60a5fa">'+fmt(tIn)+'</td>';
-          ch += '<td style="padding:8px 6px;text-align:right;color:#f87171">'+fmt(tOut)+'</td>';
-          ch += '<td style="padding:8px 6px;text-align:right;color:'+colorNet(tNet)+';font-weight:700">'+fmtSigned(tNet)+'</td>';
-          ch += '<td style="padding:8px 6px;text-align:right;color:'+(tMr>=30?'#4ade80':tMr>=15?'#fbbf24':'#f87171')+';font-weight:700">'+tMr.toFixed(1)+'%</td>';
+          ch += '<td colspan="2" style="padding:8px 8px;color:#cbd5e1">합계</td>';
+          ch += '<td style="padding:8px 8px;text-align:right;color:#60a5fa">'+fmt(tIn)+'</td>';
+          ch += '<td style="padding:8px 8px;text-align:right;color:#f87171">'+fmt(tOut)+'</td>';
+          ch += '<td style="padding:8px 8px;text-align:right;color:'+colorNet(tNet)+';font-weight:700">'+fmtSigned(tNet)+' <span style="color:'+(tMr>=30?'#4ade80':tMr>=15?'#fbbf24':'#f87171')+';font-size:10px">'+tMr.toFixed(1)+'%</span></td>';
           ch += '</tr></tbody></table></div>';
           return headerHTML + ch;
         }
@@ -3982,8 +4024,8 @@ function switchTab(tab) { currentTab=tab; render(); }
 function setProdSub(sub) { currentProdSub=sub; render(); }
 function setCsmSub(sub) { currentCsmSub=sub; render(); }
 function setCampCsmFilter(sq) { campCsmFilter=sq; render(); }
-function setCashflowYear(y) { cashflowYearFilter=y; render(); }
-function switchCashflowTab(t) { cashflowSubTab=t; render(); }
+function switchCashflowTab(t) { cashflowSubTab=t; expandedCampKey=null; render(); }
+function toggleCampRow(k) { expandedCampKey=(expandedCampKey===k)?null:k; render(); }
 function toggleCSM(idx) {
   const el = document.getElementById('csm-list-'+idx);
   if(el) el.classList.toggle('show');
