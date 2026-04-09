@@ -2270,12 +2270,11 @@ function render() {
     <div id="pastePanel" style="display:none;margin-bottom:16px"><div class="config-banner" style="flex-direction:column;align-items:stretch"><textarea id="pasteArea" style="width:100%;height:100px;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:8px;color:#e2e8f0;font-size:11px;font-family:monospace;resize:vertical" placeholder="정산월\t고객사\t브랜드\t담당자\t연도\t월\t수취예정\t지불예정\tGP"></textarea><div style="display:flex;gap:8px;margin-top:8px"><button onclick="applyPastedData()">적용</button><button onclick="togglePasteUI()" style="background:transparent;color:#64748b;border:1px solid #334155">취소</button></div></div></div>
     <div class="tab-nav">
       <button class="tab-btn ${currentTab==='overview'?'active':''}" onclick="switchTab('overview')">개요 · 월별 분석</button>
-      <button class="tab-btn ${currentTab==='portfolio'?'active':''}" onclick="switchTab('portfolio')">고객사 포트폴리오</button>
-      <button class="tab-btn ${currentTab==='csm'?'active':''}" onclick="switchTab('csm')">CSM별 현황</button>
       <button class="tab-btn ${currentTab==='heatmap'?'active':''}" onclick="switchTab('heatmap')">고객사 연간 흐름</button>
+      <button class="tab-btn ${currentTab==='portfolio'?'active':''}" onclick="switchTab('portfolio')">월간 포트폴리오</button>
+      <button class="tab-btn ${currentTab==='csm'?'active':''}" onclick="switchTab('csm')">CSM별 현황</button>
       <button class="tab-btn ${currentTab==='product'?'active':''}" onclick="switchTab('product')">상품별 현황</button>
       <button class="tab-btn ${currentTab==='cashflow'?'active':''}" onclick="switchTab('cashflow')">💰 현금흐름</button>
-      <button class="tab-btn ${currentTab==='tax'?'active':''}" onclick="switchTab('tax')">🧾 세금계산서</button>
     </div>
     <!-- TAB: Overview -->
     <div class="tab-content ${currentTab==='overview'?'active':''}" id="tab-overview">
@@ -2908,8 +2907,8 @@ function render() {
         return html;
       })()}
     </div>
-    <!-- TAB: Tax Invoice (세금계산서) -->
-    <div class="tab-content ${currentTab==='tax'?'active':''}" id="tab-tax">
+    <!-- TAB: Tax Invoice (세금계산서) - 삭제됨 -->
+    <div class="tab-content" id="tab-tax" style="display:none">
       ${(() => {
         const hasData = TAX_DATA && TAX_DATA.length > 0;
         if (!hasData) return '<div class="card"><p style="text-align:center;padding:40px;color:#94a3b8">세금계산서 데이터를 불러오는 중입니다...<br><span style="font-size:12px">매출정산 시트(gid='+TAX_GID+')에 데이터가 있으면 표시됩니다.</span></p></div>';
