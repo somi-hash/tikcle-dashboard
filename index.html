@@ -1485,8 +1485,10 @@ async function openStatusEdit(uid, campaign, client, current) {
     '홀딩':    {bg:'#3b1c1c',color:'#f87171',label:'홀딩'},
   };
   const v = String(current||'').trim()
-    .replace(/^운영\s*중\s*[\(\（].*[\)\）]?\s*$/, '운영 중')
-    .replace(/^운영\s*전\s*[\(\（].*[\)\）]?\s*$/, '운영 전');
+    .replace(/^운영\s*중[\s\S]*$/, '운영 중')
+    .replace(/^운영\s*전[\s\S]*$/, '운영 전')
+    .replace(/^마감[\s\S]*$/, '마감')
+    .replace(/^홀딩[\s\S]*$/, '홀딩');
   const origHTML = el.outerHTML;
   const esc2 = s => String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 
@@ -2910,7 +2912,7 @@ function render() {
             };
             // ─── Build rows: Client → Brand → Month → Product(count) ───
             let bodyHTML = '';
-            const W_CL = 100, W_BR = 80, W_YM = 40, W_PR = 'auto';
+            const W_BR = 90, W_YM = 40, W_PR = 'auto';
             const sortedClients = Object.keys(filteredTree).sort();
             sortedClients.forEach(cl => {
               const brands = filteredTree[cl];
@@ -2930,8 +2932,7 @@ function render() {
                     const borderStyle = isFirstRowForClient ? '#334155' : isFirstRowForBrand ? '#1e293b' : '#1e293b44';
                     bodyHTML += '<tr style="border-top:1px solid '+borderStyle+'">';
                     bodyHTML += '<td style="font-size:11px;padding:3px 6px;white-space:nowrap">';
-                    bodyHTML += '<span style="display:inline-block;min-width:'+W_CL+'px;color:#e2e8f0;font-weight:600">'+(isFirstRowForClient ? cl : '')+'</span>';
-                    bodyHTML += '<span style="display:inline-block;min-width:'+W_BR+'px;color:#cbd5e1;font-size:10px">'+(isFirstRowForBrand ? br : '')+'</span>';
+                    bodyHTML += '<span style="display:inline-block;min-width:'+W_BR+'px;color:#cbd5e1;font-size:10px;font-weight:600">'+(isFirstRowForBrand ? br : '')+'</span>';
                     bodyHTML += '<span style="display:inline-block;min-width:'+W_YM+'px;color:#818cf8;font-size:10px">'+(isFirstRowForYM ? ymShort : '')+'</span>';
                     bodyHTML += '<span style="color:#94a3b8;font-size:10px">'+prodLabel+'</span>';
                     bodyHTML += '</td>';
@@ -2955,7 +2956,7 @@ function render() {
               if (campCsmFilter !== 'all' && sq !== campCsmFilter) return;
               const key = d.campaign + '||' + d.client;
               const dYm = String(d.year||'').padStart(2,'0')+'년 '+String(d.month||'').padStart(2,'0')+'월';
-              if (!campByName[key]) campByName[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, squad:sq, recEnd:null, recStart:null, discStart:null, shipStart:null, contractEnd:null, tgtRec:0, gp:0, hasDates:false, recEndYm:null};
+              if (!campByName[key]) campByName[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, country:d.country||'', item:d.item||'', squad:sq, recEnd:null, recStart:null, discStart:null, shipStart:null, contractEnd:null, tgtRec:0, gp:0, hasDates:false, recEndYm:null};
               const c = campByName[key];
               // recEnd가 더 늦은 행이 나오면 해당 행의 squad·연월로 업데이트 (담당 정확도)
               if (d.recEnd && (!c.recEnd || d.recEnd > c.recEnd)) {
@@ -2963,6 +2964,7 @@ function render() {
                 c.squad = sq;
                 c.recEndYm = (dYm && dYm !== '00년 00월') ? dYm : null;
               }
+              if (d.country) { c.country = d.country; c.item = d.item||''; }
               c.recStart = minD(c.recStart, d.recStart);
               c.discStart = minD(c.discStart, d.discStart);
               c.shipStart = minD(c.shipStart, d.shipStart);
@@ -2989,8 +2991,10 @@ function render() {
             const noTLMap = {};
             noTimelineCamps.forEach(d => {
               const key = d.campaign+'||'+d.client;
-              if (!noTLMap[key]) noTLMap[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, squad:d.squad||'미지정', gp:0, campStatus:d.campStatus||''};
+              const ymLabel = String(d.year||'').replace(/^20/,'')+'/'+(d.month||'');
+              if (!noTLMap[key]) noTLMap[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, country:d.country||'', item:d.item||'', squad:d.squad||'미지정', ym:ymLabel, gp:0, campStatus:d.campStatus||''};
               noTLMap[key].gp += (d.gp||0);
+              if (d.country) { noTLMap[key].country = d.country; noTLMap[key].item = d.item||''; }
               // 상태값이 있으면 덮어쓰기 (나중 행 기준)
               if (d.campStatus) noTLMap[key].campStatus = d.campStatus;
             });
@@ -2998,8 +3002,10 @@ function render() {
             // 캠페인 상태 배지 렌더러
             const statusBadge = (s) => {
               const v = String(s||'').trim()
-                .replace(/^운영\s*중\s*[\(\（].*[\)\）]?\s*$/, '운영 중')
-                .replace(/^운영\s*전\s*[\(\（].*[\)\）]?\s*$/, '운영 전');
+                .replace(/^운영\s*중[\s\S]*$/, '운영 중')
+                .replace(/^운영\s*전[\s\S]*$/, '운영 전')
+                .replace(/^마감[\s\S]*$/, '마감')
+                .replace(/^홀딩[\s\S]*$/, '홀딩');
               if (!v) return '<span style="color:#475569;font-size:10px">—</span>';
               const map = {
                 '운영 전': {bg:'#422006',color:'#fbbf24',label:'운영 전'},
@@ -3016,8 +3022,10 @@ function render() {
             const canEdit = !!GAS_URL && !!localStorage.getItem('tkcle_gas_secret');
             const statusEditCell = (campaign, client, current) => {
               const v = String(current||'').trim()
-                .replace(/^운영\s*중\s*[\(\（].*[\)\）]?\s*$/, '운영 중')
-                .replace(/^운영\s*전\s*[\(\（].*[\)\）]?\s*$/, '운영 전');
+                .replace(/^운영\s*중[\s\S]*$/, '운영 중')
+                .replace(/^운영\s*전[\s\S]*$/, '운영 전')
+                .replace(/^마감[\s\S]*$/, '마감')
+                .replace(/^홀딩[\s\S]*$/, '홀딩');
               if (!canEdit) return statusBadge(v);
               const uid = 'sb_' + Math.random().toString(36).slice(2, 9);
               const esc = s => String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
@@ -3038,20 +3046,20 @@ function render() {
                 '<h3 style="font-size:13px;color:#f59e0b;margin-bottom:10px">📦 '+selMonth+'월 회수 마감 예정 ('+recDueCamps.length+'건)</h3>' +
                 '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
                 '<thead><tr>' +
-                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">고객사</th>' +
                 '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">브랜드</th>' +
+                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">연월</th>' +
+                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">상품</th>' +
+                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">국가·제품</th>' +
                 '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">담당</th>' +
-                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">캠페인 연월</th>' +
-                '<th style="text-align:right;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">예산(GP)</th>' +
                 '<th style="text-align:right;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">회수 마감</th>' +
                 '</tr></thead><tbody>' +
                 recDueCamps.map(c =>
                   '<tr style="border-bottom:1px solid #1e293b44">' +
-                  '<td style="padding:5px 6px;color:#e2e8f0;font-weight:500">'+c.client+'</td>' +
-                  '<td style="padding:5px 6px;color:#94a3b8">'+c.brand+'</td>' +
-                  '<td style="padding:5px 6px;color:#94a3b8">'+c.squad+'</td>' +
-                  '<td style="padding:5px 6px;color:#64748b;font-size:10px">'+(c.recEndYm || '—')+'</td>' +
-                  '<td style="padding:5px 6px;text-align:right;color:#818cf8;font-weight:600">'+(c.gp?fmt(c.gp):'—')+'</td>' +
+                  '<td style="padding:5px 6px;color:#e2e8f0;font-weight:600">'+c.brand+'</td>' +
+                  '<td style="padding:5px 6px;color:#818cf8;font-size:10px">'+(c.recEndYm||'—')+'</td>' +
+                  '<td style="padding:5px 6px;color:#94a3b8">'+c.product+'</td>' +
+                  '<td style="padding:5px 6px;color:#64748b;font-size:10px">'+[c.country,c.item].filter(Boolean).join(' · ')+'</td>' +
+                  '<td style="padding:5px 6px;color:#64748b">'+c.squad+'</td>' +
                   '<td style="padding:5px 6px;text-align:right;color:#f59e0b;font-weight:500">'+c.recEnd+'</td>' +
                   '</tr>'
                 ).join('') +
@@ -3065,20 +3073,20 @@ function render() {
                 '<h3 style="font-size:13px;color:#94a3b8;margin-bottom:10px">⚠️ 타임라인 미등록 ('+noTLList.length+'건) <span style="font-size:11px;color:#475569;font-weight:400">'+selMonth+'월 귀속</span></h3>' +
                 '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
                 '<thead><tr>' +
-                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">고객사</th>' +
                 '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">브랜드</th>' +
+                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">연월</th>' +
                 '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">상품</th>' +
+                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">국가·제품</th>' +
                 '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">담당</th>' +
-                '<th style="text-align:right;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">예산</th>' +
                 '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">상태</th>' +
                 '</tr></thead><tbody>' +
                 noTLList.map(c =>
                   '<tr style="border-bottom:1px solid #1e293b44">' +
-                  '<td style="padding:5px 6px;color:#e2e8f0;font-weight:500">'+c.client+'</td>' +
-                  '<td style="padding:5px 6px;color:#94a3b8">'+c.brand+'</td>' +
-                  '<td style="padding:5px 6px;color:#64748b">'+c.product+'</td>' +
+                  '<td style="padding:5px 6px;color:#e2e8f0;font-weight:600">'+c.brand+'</td>' +
+                  '<td style="padding:5px 6px;color:#818cf8;font-size:10px">'+(c.ym||'—')+'</td>' +
+                  '<td style="padding:5px 6px;color:#94a3b8">'+c.product+'</td>' +
+                  '<td style="padding:5px 6px;color:#64748b;font-size:10px">'+[c.country,c.item].filter(Boolean).join(' · ')+'</td>' +
                   '<td style="padding:5px 6px;color:#64748b">'+c.squad+'</td>' +
-                  '<td style="padding:5px 6px;text-align:right;color:#818cf8;font-weight:600">'+(c.gp?fmt(c.gp):'—')+'</td>' +
                   '<td style="padding:4px 5px">' + statusEditCell(c.campaign, c.client, c.campStatus) + '</td>' +
                   '</tr>'
                 ).join('') +
@@ -3089,7 +3097,7 @@ function render() {
             const bottomSectionHTML = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px">'+recDueHTML+noTLHTML+'</div>';
             return filterHTML + legendHTML +
               '<p class="sub" style="margin-bottom:8px">캠페인 현황 · '+winLabel+' · '+totalRows+'건</p>' +
-              '<table style="width:100%;border-collapse:collapse;table-layout:fixed"><colgroup><col style="width:340px"><col span="'+totalDays+'"></colgroup><thead style="position:sticky;top:0;z-index:5;background:#0f172a"><tr><th style="width:340px"></th>'+monthHeaderHTML+'</tr><tr><th style="width:340px;font-size:10px;color:#64748b;text-align:left;padding-left:6px">고객사 / 브랜드 / 월 / 상품</th>'+dayHeaderHTML+'</tr></thead><tbody>'+bodyHTML+'</tbody></table>' +
+              '<table style="width:100%;border-collapse:collapse;table-layout:fixed"><colgroup><col style="width:240px"><col span="'+totalDays+'"></colgroup><thead style="position:sticky;top:0;z-index:5;background:#0f172a"><tr><th style="width:240px"></th>'+monthHeaderHTML+'</tr><tr><th style="width:240px;font-size:10px;color:#64748b;text-align:left;padding-left:6px">브랜드 / 월 / 상품</th>'+dayHeaderHTML+'</tr></thead><tbody>'+bodyHTML+'</tbody></table>' +
               bottomSectionHTML;
           })()}
       </div>
