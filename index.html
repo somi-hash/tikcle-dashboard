@@ -1764,9 +1764,9 @@ function renderCumChart(canvas, monthly, target, months) {
   });
   const inPointColors = monthly.map(m => isFutureMonth(m.ym) ? 'rgba(34,211,238,0.35)' : '#22d3ee');
   cumChart = new Chart(canvas, { type:'line', data: { labels: monthly.map(m=>m.ym), datasets: [
-    { label:'누적 매출', data:cumIns, borderColor:'#22d3ee', backgroundColor:'rgba(34,211,238,0.07)', fill:false, tension:0.3, pointRadius:3, pointBackgroundColor:inPointColors, borderWidth:1.8, spanGaps:false },
-    { label:'누적 매출총이익', data:cumGPs, borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,0.15)', fill:true, tension:0.3, pointRadius:4, pointBackgroundColor:cumPointColors, borderWidth:2.5, segment: { borderDash: cumSegmentStyle, borderColor: cumSegmentColor } },
-    { label:'목표 누적 라인', data:cumTargets, borderColor:'#f59e0b', borderDash:[6,4], pointRadius:0, borderWidth:1.5, fill:false }
+    { label:'누적 매출', data:cumIns, borderColor:'#22d3ee', backgroundColor:'rgba(34,211,238,0.10)', fill:true, tension:0.3, pointRadius:3, pointBackgroundColor:inPointColors, borderWidth:2, spanGaps:false, order:2 },
+    { label:'누적 매출총이익', data:cumGPs, borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,0.18)', fill:true, tension:0.3, pointRadius:4, pointBackgroundColor:cumPointColors, borderWidth:2.5, segment: { borderDash: cumSegmentStyle, borderColor: cumSegmentColor }, order:1 },
+    { label:'목표 누적 라인', data:cumTargets, borderColor:'#f59e0b', borderDash:[6,4], pointRadius:0, borderWidth:2, fill:false, order:0 }
   ]}, options: { responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{legend:{position:'bottom', labels:{color:'#94a3b8', font:{size:11}, boxWidth:14, padding:14, usePointStyle:true}},tooltip:{
     callbacks:{
       title: (items) => items[0]?.label || '',
@@ -1866,7 +1866,7 @@ function renderGPBar(canvas, waterfall, monthly, onClickBar) {
           position: 'bottom',
           labels: {
             color: '#94a3b8', font: { size: 11 }, boxWidth: 12, padding: 12,
-            sort: (a, b) => ['매출','매출총이익(GP)','이익(%)'].indexOf(a.text) - ['매출','매출총이익(GP)','이익(%)'].indexOf(b.text)
+            sort: (a, b) => ['매출','매출총이익(GP)','이익률(%)'].indexOf(a.text) - ['매출','매출총이익(GP)','이익률(%)'].indexOf(b.text)
           }
         },
         tooltip: {
@@ -1975,11 +1975,13 @@ function renderWaterfall(canvas, waterfall) {
     scales:{
       x:{stacked:true, ticks:{color:waterfall.map(w=>isFutureMonth(w.ym)?'rgba(148,163,184,0.4)':'#94a3b8')}},
       y:{stacked:true, ticks:{callback:v=>fmt(v)}, grid:{color:'rgba(100,116,139,0.15)'}}
-    }
+    },
+    layout: { padding: { top: 28 } }
   },
   plugins: [{
     id: 'wfLabels',
-    afterDraw(chart) {
+    // afterDatasetsDraw: 툴팁보다 먼저 그려져서 마우스오버 시 툴팁이 레이블 위에 표시됨
+    afterDatasetsDraw(chart) {
       const ctx = chart.ctx;
       ctx.save();
       ctx.font = 'bold 10px sans-serif';
