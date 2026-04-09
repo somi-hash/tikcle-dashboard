@@ -1395,6 +1395,43 @@ function saveGasURL(input) {
   else localStorage.removeItem('tkcle_gas_url');
   loadData(true);
 }
+function saveGasSecret(input) {
+  const s = (input||'').trim();
+  if (s) localStorage.setItem('tkcle_gas_secret', s);
+  else localStorage.removeItem('tkcle_gas_secret');
+  alert(s ? '✅ 비밀키가 저장되었습니다.' : '비밀키가 삭제되었습니다.');
+}
+
+// ─── GAS POST: 캠페인 상태(L열) 업데이트 ──────────────────────────
+async function gasUpdateStatus(campaign, client, status) {
+  if (!GAS_URL) {
+    alert('GAS URL이 설정되지 않았습니다.\n설정 패널에서 GAS 프록시 URL을 입력해주세요.');
+    return false;
+  }
+  const secret = localStorage.getItem('tkcle_gas_secret') || '';
+  if (!secret) {
+    alert('공유 비밀키가 설정되지 않았습니다.\n설정 패널에서 비밀키를 입력해주세요.');
+    return false;
+  }
+  try {
+    const resp = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' }, // GAS CORS 우회
+      body: JSON.stringify({ secret, action: 'updateStatus', campaign, client, status })
+    });
+    const result = await resp.json();
+    if (result.success) {
+      dbg('✅ 상태 업데이트: '+campaign+' / '+client+' → '+status+' ('+result.updated+'행)');
+      return true;
+    } else {
+      alert('업데이트 실패: ' + (result.error||'알 수 없는 오류'));
+      return false;
+    }
+  } catch(e) {
+    alert('GAS 요청 오류: ' + e.message);
+    return false;
+  }
+}
 function toggleGasGuide() {
   const el = document.getElementById('gasGuide');
   if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
@@ -2272,6 +2309,12 @@ function render() {
           <input id="gasUrlInput" placeholder="Apps Script 웹앱 URL" value="${GAS_URL}" style="flex:1;min-width:200px">
           <button onclick="saveGasURL(document.getElementById('gasUrlInput').value)">저장</button>
         </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:13px;color:#94a3b8">🔑 공유 비밀키:</span>
+          <input id="gasSecretInput" placeholder="tikcle2026 (GAS 스크립트와 동일하게)" value="${localStorage.getItem('tkcle_gas_secret')||''}" style="flex:1;min-width:200px">
+          <button onclick="saveGasSecret(document.getElementById('gasSecretInput').value)">저장</button>
+          <span style="font-size:11px;color:#475569">팀 전체 동일하게 입력</span>
+        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <button onclick="document.getElementById('configPanel').style.display='none'" style="background:transparent;color:#64748b;border:1px solid #334155;width:fit-content">닫기</button>
           <button onclick="loadData(true).then(()=>updateDebugPanel())" style="background:#6366f1;color:#fff;border:none;width:fit-content">🔄 다시 연결</button>
@@ -2413,8 +2456,7 @@ function render() {
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
           <div>
-            <h2 style="margin-bottom:2px">📅 월간 운영현황</h2>
-            <p class="sub">${am?.ym||''} · 캠페인 타임라인 현황</p>
+            <h2>📅 월간 운영현황</h2>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             ${monthSelectHTML}
@@ -2684,10 +2726,8 @@ function render() {
             // 캠페인 상태 배지 렌더러
             const statusBadge = (s) => {
               const v = String(s||'').trim()
-                .replace('운영 중(디스커버리~회수)', '운영 중')
-                .replace('운영중(디스커버리~회수)', '운영 중')
-                .replace(/^운영 중\(.*\)$/, '운영 중')
-                .replace(/^운영중\(.*\)$/, '운영 중');
+                .replace(/^운영\s*중\s*[\(\（].*[\)\）]?\s*$/, '운영 중')
+                .replace(/^운영\s*전\s*[\(\（].*[\)\）]?\s*$/, '운영 전');
               if (!v) return '<span style="color:#475569;font-size:10px">—</span>';
               const map = {
                 '운영 전': {bg:'#422006',color:'#fbbf24',label:'운영 전'},
@@ -2699,6 +2739,24 @@ function render() {
               };
               const m = map[v] || {bg:'#1e293b',color:'#94a3b8',label:v};
               return '<span style="display:inline-block;padding:2px 7px;border-radius:10px;background:'+m.bg+';color:'+m.color+';font-size:10px;font-weight:600;white-space:nowrap">'+m.label+'</span>';
+            };
+            // GAS 연동 시 상태 셀: 드롭다운 선택 → 시트 즉시 반영
+            const canEdit = !!GAS_URL && !!localStorage.getItem('tkcle_gas_secret');
+            const statusEditCell = (campaign, client, current) => {
+              const v = String(current||'').trim()
+                .replace(/^운영\s*중\s*[\(\（].*[\)\）]?\s*$/, '운영 중')
+                .replace(/^운영\s*전\s*[\(\（].*[\)\）]?\s*$/, '운영 전');
+              if (!canEdit) return statusBadge(v);
+              const opts = ['운영 전','운영 중','마감','홀딩'];
+              const esc = s => s.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+              const selStyle = 'font-size:10px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:2px 6px;cursor:pointer;';
+              return '<select style="'+selStyle+'" onchange="(async()=>{'+
+                'const ok=await gasUpdateStatus(\''+esc(campaign)+'\',\''+esc(client)+'\',this.value);'+
+                'if(ok){this.style.borderColor=\'#4ade80\';setTimeout(()=>{this.style.borderColor=\'#334155\'},1500);}'+
+                'else{this.value=\''+esc(v)+'\';}'+
+              '})()">' +
+              opts.map(o => '<option value="'+o+'"'+(o===v?' selected':'')+'>'+o+'</option>').join('') +
+              '</select>';
             };
             // ─── 2열 레이아웃: 좌=회수마감예정, 우=타임라인미등록 ───
             let recDueHTML = '';
@@ -2748,7 +2806,7 @@ function render() {
                   '<td style="padding:5px 6px;color:#64748b">'+c.product+'</td>' +
                   '<td style="padding:5px 6px;color:#64748b">'+c.squad+'</td>' +
                   '<td style="padding:5px 6px;text-align:right;color:#818cf8;font-weight:600">'+(c.gp?fmt(c.gp):'—')+'</td>' +
-                  '<td style="padding:5px 6px">'+statusBadge(c.campStatus)+'</td>' +
+                  '<td style="padding:4px 5px">' + statusEditCell(c.campaign, c.client, c.campStatus) + '</td>' +
                   '</tr>'
                 ).join('') +
                 '</tbody></table></div>';
