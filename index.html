@@ -239,6 +239,17 @@ if (sessionStorage.getItem('tkcle_auth') === '1') {
 // ─── GOOGLE SHEETS CONFIG ────────────────────────────────────────
 const DEFAULT_SHEETS_ID = '1sCiHuEBA-Qr-Ekg4DyWv-hLy1p9CvMiso5ZnPg5j52Q';
 const DEFAULT_MAIN_GID = 93829805; // 통합정산 시트 gid
+// 구 시트 ID가 localStorage에 남아있으면 자동 초기화
+const _OLD_SHEETS_ID = '1MbxoehGgkveDwle7gFWfPlCl1XlHVmzqEw8HtOOkIm8';
+const _OLD_MAIN_GIDS = [1397695984, 474078757];
+if (localStorage.getItem('tkcle_sheets_id') === _OLD_SHEETS_ID) {
+  localStorage.removeItem('tkcle_sheets_id');
+  localStorage.removeItem('tkcle_main_gid');
+  localStorage.removeItem('tkcle_cashflow_gid');
+}
+_OLD_MAIN_GIDS.forEach(g => {
+  if (parseInt(localStorage.getItem('tkcle_main_gid')) === g) localStorage.removeItem('tkcle_main_gid');
+});
 let SHEETS_ID = localStorage.getItem('tkcle_sheets_id') || DEFAULT_SHEETS_ID;
 let MAIN_GID = parseInt(localStorage.getItem('tkcle_main_gid')) || DEFAULT_MAIN_GID;
 let GAS_URL = localStorage.getItem('tkcle_gas_url') || '';
@@ -248,6 +259,11 @@ let isLoading = false;
 let PRODUCT_MAP = {};
 let CAMPAIGN_DATA = []; // [{campaign, client, brand, product, squad, year, month, discStart, discEnd, shipStart, recStart, recEnd, contractEnd, tgtAccept, tgtShip, tgtRec, actualRecEnd}]
 const TAX_GID = 982424415; // 매출정산 시트 gid
+const DEFAULT_CASHFLOW_GID = 159763230; // cashflow 시트 gid
+// cashflow GID가 미설정이거나 구 시트 GID면 기본값으로 초기화
+if (!localStorage.getItem('tkcle_cashflow_gid')) {
+  localStorage.setItem('tkcle_cashflow_gid', String(DEFAULT_CASHFLOW_GID));
+}
 let TAX_DATA = []; // [{ym, campaign, client, brand, squad, year, month, settleType, taxAmtEx, taxAmtIn, issueDate, invoiceInfo, payDueDate, paid}]
 // ─── Google gviz 기본 응답 핸들러 (JSONP 에러 캐치용) ────────────
 // Google의 gviz API는 에러 발생 시 tqx=responseHandler를 무시하고
