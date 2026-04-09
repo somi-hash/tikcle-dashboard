@@ -3559,7 +3559,7 @@ function render() {
             if (!cg[k]) cg[k] = {key:k, client:(p.client||'').trim(), brand:(p.brand||'').trim(), inAmt:0, outAmt:0};
             cg[k].outAmt += (p.amt||0);
           });
-          const cl = Object.values(cg).filter(c=>c.client).sort((a,b)=>b.inAmt-a.inAmt);
+          const cl = Object.values(cg).sort((a,b)=>b.inAmt-a.inAmt);
           const tIn=cl.reduce((s,c)=>s+c.inAmt,0), tOut=cl.reduce((s,c)=>s+c.outAmt,0), tNet=tIn-tOut;
           const tMr = tIn>0?((tIn-tOut)/tIn*100):0;
           // ── 연월별 상세 빌더 (TAX_DATA 수취 + INFLU_PAY_DATA 지급) ──
@@ -3625,16 +3625,23 @@ function render() {
           ch += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
           ch += '<thead><tr style="border-bottom:1px solid #334155;color:#64748b"><th style="text-align:left;padding:7px 8px">고객사</th><th style="text-align:left;padding:7px 6px">브랜드</th><th style="text-align:right;padding:7px 8px">유입(수취)</th><th style="text-align:right;padding:7px 8px">유출(지급)</th><th style="text-align:right;padding:7px 8px">순현금 / 이익률</th></tr></thead><tbody>';
           cl.forEach((c,ci) => {
+            const isUnknown = !c.client;
             const net=c.inAmt-c.outAmt, mr=c.inAmt>0?(net/c.inAmt*100):0;
             const mc=mr>=30?'#4ade80':mr>=15?'#fbbf24':'#f87171';
             const isExp=expandedCampKey===c.key;
-            const safeKey=c.key.replace(/[^a-z0-9]/gi,'_');
-            ch += '<tr onclick="toggleCampRow(\''+c.key.replace(/'/g,"\\'")+'\')" style="border-bottom:1px solid #1e293b;cursor:pointer;'+(isExp?'background:#172033':'')+'">';
-            ch += '<td style="padding:7px 8px;color:#f8fafc;font-weight:500"><span style="display:inline-block;width:14px;color:#475569;font-size:10px">'+(isExp?'▼':'▶')+'</span> '+c.client+'</td>';
-            ch += '<td style="padding:7px 6px;color:#94a3b8">'+c.brand+'</td>';
-            ch += '<td style="padding:7px 8px;text-align:right;color:#60a5fa">'+fmt(c.inAmt)+'</td>';
+            const displayClient = isUnknown
+              ? '<span style="color:#475569;font-style:italic">기타 (거래처 미기재)</span>'
+              : c.client;
+            const displayBrand = isUnknown
+              ? '<span style="color:#334155;font-size:10px">—</span>'
+              : c.brand;
+            const rowBg = isUnknown ? 'background:#0a0f18;' : (isExp?'background:#172033':'');
+            ch += '<tr onclick="toggleCampRow(\''+c.key.replace(/'/g,"\\'")+'\')" style="border-bottom:1px solid #1e293b;cursor:pointer;'+rowBg+'">';
+            ch += '<td style="padding:7px 8px;font-weight:500"><span style="display:inline-block;width:14px;color:#475569;font-size:10px">'+(isExp?'▼':'▶')+'</span> '+displayClient+'</td>';
+            ch += '<td style="padding:7px 6px;color:#94a3b8">'+displayBrand+'</td>';
+            ch += '<td style="padding:7px 8px;text-align:right;color:'+(isUnknown?'#334155':'#60a5fa')+'">'+(c.inAmt>0?fmt(c.inAmt):'<span style="color:#1e293b">—</span>')+'</td>';
             ch += '<td style="padding:7px 8px;text-align:right;color:#f87171">'+fmt(c.outAmt)+'</td>';
-            ch += '<td style="padding:7px 8px;text-align:right"><span style="font-weight:600;color:'+colorNet(net)+'">'+fmtSigned(net)+'</span> <span style="color:'+mc+';font-size:10px;margin-left:4px">'+mr.toFixed(1)+'%</span></td>';
+            ch += '<td style="padding:7px 8px;text-align:right">'+(isUnknown?'<span style="color:#334155;font-size:10px">수취 없음</span>':'<span style="font-weight:600;color:'+colorNet(net)+'">'+fmtSigned(net)+'</span> <span style="color:'+mc+';font-size:10px;margin-left:4px">'+mr.toFixed(1)+'%</span>')+'</td>';
             ch += '</tr>';
             if (isExp) ch += buildCampDetail(c.client, c.brand, c.key);
           });
