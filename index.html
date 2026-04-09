@@ -930,7 +930,7 @@ function loadJSONP(url, timeoutMs) {
 // ─── Google Sheets JSONP (gviz API) ──────────────────────────────
 function fetchViaJSONP(sheetId, gid) {
   gid = gid || 0;
-  const url = 'https://docs.google.com/spreadsheets/d/'+sheetId+'/gviz/tq?gid='+gid;
+  const url = 'https://docs.google.com/spreadsheets/d/'+sheetId+'/gviz/tq?gid='+gid+'&_='+Date.now();
   dbg('📡 JSONP 요청: gid='+gid+' sheetId='+sheetId.substring(0,12)+'...');
   return loadJSONP(url, 15000).then(resp => {
     if (!resp) return null;
@@ -1059,7 +1059,7 @@ function fetchViaGoogleViz(sheetId, gid) {
 }
 // ─── Generic sheet JSONP (for product data scanning) ─────────────
 function fetchSheetJSONP(sheetId, gid, callbackName) {
-  const url = 'https://docs.google.com/spreadsheets/d/'+sheetId+'/gviz/tq?gid='+gid;
+  const url = 'https://docs.google.com/spreadsheets/d/'+sheetId+'/gviz/tq?gid='+gid+'&_='+Date.now();
   dbg('📡 상품 시트 JSONP: gid='+gid);
   return loadJSONP(url, 12000);
 }
@@ -1511,6 +1511,7 @@ async function openStatusEdit(uid, campaign, client, current) {
       const tmp = document.createElement('span');
       tmp.innerHTML = newHTML;
       if (sel.parentNode) sel.replaceWith(tmp.firstChild);
+      showToast('✅ 상태 업데이트 완료');
     } else {
       sel.disabled = false;
       sel.style.opacity = '1';
@@ -1602,6 +1603,19 @@ function closeTimelineModal() {
   const modal = document.getElementById('timelineEditModal');
   if (modal) modal.style.display = 'none';
 }
+function showToast(msg) {
+  let t = document.getElementById('_toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = '_toast';
+    t.style.cssText = 'position:fixed;bottom:32px;left:50%;transform:translateX(-50%);background:#22c55e;color:#fff;padding:10px 20px;border-radius:24px;font-size:13px;font-weight:600;z-index:9999;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2500);
+}
 async function saveTimelineEdit() {
   const modal = document.getElementById('timelineEditModal');
   if (!modal) return;
@@ -1629,7 +1643,7 @@ async function saveTimelineEdit() {
       alert('⚠️ 매칭된 행 없음 (0건 업데이트)\n\n[요청값]\n고객사: '+client+'\n브랜드: '+brand+'\n년: '+year+' (→'+result.debug?.reqYear+')\n월: '+month+dbgInfo+'\n\n→ GAS의 COL_CLIENT/BRAND/YEAR/MONTH 컬럼 번호를 확인해주세요.');
     } else {
       closeTimelineModal();
-      alert('✅ '+result.updated+'행 업데이트 완료. 새로고침합니다.');
+      showToast('✅ '+result.updated+'행 업데이트 완료');
       loadData(true);
     }
   }
@@ -2854,7 +2868,7 @@ function render() {
             };
             // ─── Build rows: Client → Brand → Month → Product(count) ───
             let bodyHTML = '';
-            const W_CL = 100, W_BR = 80, W_YM = 58, W_PR = 'auto';
+            const W_CL = 100, W_BR = 80, W_YM = 40, W_PR = 'auto';
             const sortedClients = Object.keys(filteredTree).sort();
             sortedClients.forEach(cl => {
               const brands = filteredTree[cl];
@@ -2868,13 +2882,15 @@ function render() {
                   let isFirstRowForYM = true;
                   prodList.forEach(p => {
                     const subLabel = [p.country, p.item].filter(Boolean).join(' · ');
-                    const prodLabel = p.product + (subLabel ? ' <span style="color:#64748b;font-size:9px">['+subLabel+']</span>' : '') + (p.tgtRec ? ' ('+p.tgtRec.toLocaleString()+')' : '');
+                    const prodLabel = p.product + (subLabel ? ' <span style="color:#64748b;font-size:9px">['+subLabel+']</span>' : '');
+                    // 26년 03월 → 26/3 (공간 절약)
+                    const ymShort = ym.replace(/^(\d+)년\s*0?(\d+)월$/, '$1/$2');
                     const borderStyle = isFirstRowForClient ? '#334155' : isFirstRowForBrand ? '#1e293b' : '#1e293b44';
                     bodyHTML += '<tr style="border-top:1px solid '+borderStyle+'">';
                     bodyHTML += '<td style="font-size:11px;padding:3px 6px;white-space:nowrap">';
                     bodyHTML += '<span style="display:inline-block;min-width:'+W_CL+'px;color:#e2e8f0;font-weight:600">'+(isFirstRowForClient ? cl : '')+'</span>';
                     bodyHTML += '<span style="display:inline-block;min-width:'+W_BR+'px;color:#cbd5e1;font-size:10px">'+(isFirstRowForBrand ? br : '')+'</span>';
-                    bodyHTML += '<span style="display:inline-block;min-width:'+W_YM+'px;color:#818cf8;font-size:10px">'+(isFirstRowForYM ? ym : '')+'</span>';
+                    bodyHTML += '<span style="display:inline-block;min-width:'+W_YM+'px;color:#818cf8;font-size:10px">'+(isFirstRowForYM ? ymShort : '')+'</span>';
                     bodyHTML += '<span style="color:#94a3b8;font-size:10px">'+prodLabel+'</span>';
                     bodyHTML += '</td>';
                     bodyHTML += renderTimeline(p);
