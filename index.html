@@ -267,7 +267,9 @@ if (!localStorage.getItem('tkcle_cashflow_gid')) {
 let TAX_DATA = []; // [{ym, campaign, client, brand, squad, year, month, settleType, taxAmtEx, taxAmtIn, issueDate, invoiceInfo, payDueDate, paid}]
 const INFLU_PAY_GID = 1385383205; // 인플루언서 지급 시트 gid
 const FX_USD_TO_KRW = 1500;       // USD→KRW 환산용 고정 환율
-let INFLU_PAY_DATA = []; // [{date, ym, amt, client, brand, csm, krwOriginal}]
+let INFLU_PAY_DATA = []; // [{date, ym, amt, client, brand, csm, year, month, usdOriginal, krwOriginal}]
+let expandedCashflowYm = null; // 현금흐름 탭에서 펼쳐진 월 (yyyy-mm)
+const CASHFLOW_START_YM = '2026-01'; // 현금흐름 탭 시작 월
 // ─── Google gviz 기본 응답 핸들러 (JSONP 에러 캐치용) ────────────
 // Google의 gviz API는 에러 발생 시 tqx=responseHandler를 무시하고
 // google.visualization.Query.setResponse()를 호출함 → 이를 캐치
@@ -686,7 +688,9 @@ function parseSettlementResponse(response) {
     const iYM = findColIndex(cols, ['연월']);
     const iCamp = findColIndex(cols, ['품목명', '품목']);
     const iClient = findColIndex(cols, ['고객사', '거래처']);
-    const iBrand = findColIndex(cols, ['브랜드']);
+    let iBrand = findColIndex(cols, ['브랜드']);
+    // 세발 시트의 브랜드 컬럼은 헤더가 비어있는 경우가 있음 → 거래처 바로 다음 컬럼으로 fallback
+    if (iBrand < 0 && iClient >= 0 && iClient + 1 < cols.length) iBrand = iClient + 1;
     const iSquad = findColIndex(cols, ['스쿼드', '담당']);
     const iYear = findColIndex(cols, ['년']);
     const iMonth = cols.findIndex((c,idx) => idx > (iYear >= 0 ? iYear : 0) && (c.label||'').trim() === '월');
@@ -1062,7 +1066,7 @@ function parseInfluPayResponse(response) {
     const table = response.table;
     if (!table || !table.rows) return [];
     const data = [];
-    const cClient=2, cBrand=3, cCsm=4, cUsd=8, cKrw=9, cDate=10;
+    const cClient=2, cBrand=3, cCsm=4, cYear=5, cMonth=6, cUsd=8, cKrw=9, cDate=10;
     for (const row of table.rows) {
       const c = row.c;
       if (!c) continue;
@@ -1090,6 +1094,9 @@ function parseInfluPayResponse(response) {
         client: String(val(cClient)||'').trim(),
         brand: String(val(cBrand)||'').trim(),
         csm: String(val(cCsm)||'').trim(),
+        year: String(val(cYear)||'').replace(/['"]/g,'').trim(),
+        month: parseInt(val(cMonth)) || 0,
+        usdOriginal: usd,
         krwOriginal: krw > 0
       });
     }
@@ -2725,6 +2732,8 @@ function render() {
         if (!hasIn && !hasOut) {
           return '<div class="card"><p style="text-align:center;padding:40px;color:#94a3b8">현금흐름 데이터를 불러오는 중입니다...<br><span style="font-size:12px">매출정산 시트의 발행기준일과 인플 지급 시트(gid='+INFLU_PAY_GID+')의 지급일자가 필요합니다.</span></p></div>';
         }
+        // 26년 1월부터 반영
+        const startYm = CASHFLOW_START_YM;
         const months = {};
         const bump = (ym, key, amt) => {
           if (!months[ym]) months[ym] = {in:0, out:0};
@@ -2734,9 +2743,13 @@ function render() {
           if (!d.issueDate) return;
           const ym = String(d.issueDate).slice(0,7);
           if (!ym || ym.length !== 7) return;
+          if (ym < startYm) return;
           bump(ym, 'in', d.taxAmtIn || 0);
         });
-        INFLU_PAY_DATA.forEach(p => bump(p.ym, 'out', p.amt));
+        INFLU_PAY_DATA.forEach(p => {
+          if (!p.ym || p.ym < startYm) return;
+          bump(p.ym, 'out', p.amt);
+        });
         const sortedYms = Object.keys(months).sort();
         let cum = 0;
         const rows = sortedYms.map(ym => {
@@ -2753,14 +2766,107 @@ function render() {
         const colorNet = (n) => n >= 0 ? '#4ade80' : '#f87171';
         const today = new Date();
         const curYm = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0');
+        // 펼침 상세 빌더
+        const buildDetail = (ym) => {
+          // IN 그룹화: 고객사|브랜드|CSM|년|월
+          const inMap = {};
+          TAX_DATA.forEach(d => {
+            if (!d.issueDate) return;
+            if (String(d.issueDate).slice(0,7) !== ym) return;
+            const client=(d.client||'').trim(), brand=(d.brand||'').trim(), csm=(d.squad||'').trim();
+            const year=(d.year||'').toString(), month=(d.month||'').toString();
+            const key = client+'|'+brand+'|'+csm+'|'+year+'|'+month;
+            if (!inMap[key]) inMap[key] = {client, brand, csm, year, month, vatEx:0, vatIn:0, count:0};
+            inMap[key].vatEx += d.taxAmtEx || 0;
+            inMap[key].vatIn += d.taxAmtIn || 0;
+            inMap[key].count += 1;
+          });
+          // OUT 그룹화
+          const outMap = {};
+          INFLU_PAY_DATA.forEach(p => {
+            if (p.ym !== ym) return;
+            const client=(p.client||'').trim(), brand=(p.brand||'').trim(), csm=(p.csm||'').trim();
+            const year=(p.year||'').toString(), month=(p.month||'').toString();
+            const key = client+'|'+brand+'|'+csm+'|'+year+'|'+month;
+            if (!outMap[key]) outMap[key] = {client, brand, csm, year, month, amt:0, count:0};
+            outMap[key].amt += p.amt;
+            outMap[key].count += 1;
+          });
+          const inList = Object.values(inMap).sort((a,b)=>b.vatIn-a.vatIn);
+          const outList = Object.values(outMap).sort((a,b)=>b.amt-a.amt);
+          const inSumEx = inList.reduce((s,x)=>s+x.vatEx, 0);
+          const inSumIn = inList.reduce((s,x)=>s+x.vatIn, 0);
+          const outSum = outList.reduce((s,x)=>s+x.amt, 0);
+          // 두 패널 가로 분할
+          let h = '<tr><td colspan="5" style="padding:0;background:#0b1220;border-bottom:1px solid #334155">';
+          h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:#1e293b">';
+          // IN 패널
+          h += '<div style="background:#0b1220;padding:14px 16px">';
+          h += '<div style="font-size:12px;font-weight:600;color:#60a5fa;margin-bottom:8px">📥 유입 상세 (' + ym + ') · 합계 VAT- '+fmt(inSumEx)+' / VAT+ '+fmt(inSumIn)+'</div>';
+          if (inList.length === 0) {
+            h += '<div style="color:#64748b;font-size:11px;padding:8px 0">해당 월 발행 내역 없음</div>';
+          } else {
+            h += '<table style="width:100%;font-size:11px;border-collapse:collapse">';
+            h += '<thead><tr style="color:#64748b;border-bottom:1px solid #1e293b">';
+            h += '<th style="text-align:left;padding:6px 4px">고객사</th>';
+            h += '<th style="text-align:left;padding:6px 4px">브랜드</th>';
+            h += '<th style="text-align:left;padding:6px 4px">CSM</th>';
+            h += '<th style="text-align:center;padding:6px 4px">년/월</th>';
+            h += '<th style="text-align:right;padding:6px 4px">VAT-</th>';
+            h += '<th style="text-align:right;padding:6px 4px">VAT+</th>';
+            h += '</tr></thead><tbody>';
+            inList.forEach(x => {
+              h += '<tr style="border-bottom:1px solid #1e293b">';
+              h += '<td style="padding:6px 4px;color:#e2e8f0">'+(x.client||'-')+'</td>';
+              h += '<td style="padding:6px 4px;color:#cbd5e1">'+(x.brand||'-')+'</td>';
+              h += '<td style="padding:6px 4px;color:#cbd5e1">'+(x.csm||'-')+'</td>';
+              h += '<td style="padding:6px 4px;text-align:center;color:#94a3b8">'+(x.year||'')+'/'+(x.month||'')+'</td>';
+              h += '<td style="padding:6px 4px;text-align:right;color:#93c5fd">'+fmt(x.vatEx)+'</td>';
+              h += '<td style="padding:6px 4px;text-align:right;color:#60a5fa;font-weight:600">'+fmt(x.vatIn)+'</td>';
+              h += '</tr>';
+            });
+            h += '</tbody></table>';
+          }
+          h += '</div>';
+          // OUT 패널
+          h += '<div style="background:#0b1220;padding:14px 16px">';
+          h += '<div style="font-size:12px;font-weight:600;color:#f87171;margin-bottom:8px">📤 유출 상세 (' + ym + ') · 합계 '+fmt(outSum)+'</div>';
+          if (outList.length === 0) {
+            h += '<div style="color:#64748b;font-size:11px;padding:8px 0">해당 월 인플 지급 내역 없음</div>';
+          } else {
+            h += '<table style="width:100%;font-size:11px;border-collapse:collapse">';
+            h += '<thead><tr style="color:#64748b;border-bottom:1px solid #1e293b">';
+            h += '<th style="text-align:left;padding:6px 4px">고객사</th>';
+            h += '<th style="text-align:left;padding:6px 4px">브랜드</th>';
+            h += '<th style="text-align:left;padding:6px 4px">CSM</th>';
+            h += '<th style="text-align:center;padding:6px 4px">년/월</th>';
+            h += '<th style="text-align:right;padding:6px 4px">금액(KRW)</th>';
+            h += '<th style="text-align:center;padding:6px 4px">건수</th>';
+            h += '</tr></thead><tbody>';
+            outList.forEach(x => {
+              h += '<tr style="border-bottom:1px solid #1e293b">';
+              h += '<td style="padding:6px 4px;color:#e2e8f0">'+(x.client||'-')+'</td>';
+              h += '<td style="padding:6px 4px;color:#cbd5e1">'+(x.brand||'-')+'</td>';
+              h += '<td style="padding:6px 4px;color:#cbd5e1">'+(x.csm||'-')+'</td>';
+              h += '<td style="padding:6px 4px;text-align:center;color:#94a3b8">'+(x.year||'')+'/'+(x.month||'')+'</td>';
+              h += '<td style="padding:6px 4px;text-align:right;color:#f87171;font-weight:600">'+fmt(x.amt)+'</td>';
+              h += '<td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.count+'</td>';
+              h += '</tr>';
+            });
+            h += '</tbody></table>';
+          }
+          h += '</div>';
+          h += '</div></td></tr>';
+          return h;
+        };
         let html = '';
         html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">';
-        html += '  <div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유입 (매출 발행 기준)</div><div style="font-size:22px;font-weight:700;color:#60a5fa">'+fmt(totalIn)+'</div><div style="font-size:10px;color:#64748b;margin-top:4px">세발 발행기준일 · VAT포함</div></div>';
+        html += '  <div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유입 (매출 발행 기준)</div><div style="font-size:22px;font-weight:700;color:#60a5fa">'+fmt(totalIn)+'</div><div style="font-size:10px;color:#64748b;margin-top:4px">세발 발행기준일 · VAT포함 · '+startYm+'~</div></div>';
         html += '  <div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유출 (인플 정산)</div><div style="font-size:22px;font-weight:700;color:#f87171">'+fmt(totalOut)+'</div><div style="font-size:10px;color:#64748b;margin-top:4px">지급일자 기준 · USD는 1,500원 환산</div></div>';
         html += '  <div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">순현금흐름 누적</div><div style="font-size:22px;font-weight:700;color:'+colorNet(totalNet)+'">'+fmt(totalNet)+'</div><div style="font-size:10px;color:#64748b;margin-top:4px">유입 - 유출</div></div>';
         html += '</div>';
         html += '<div class="card" style="margin-bottom:16px"><div style="font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:12px">월별 유입 vs 유출 (누적 순현금)</div><div style="height:340px"><canvas id="cashflowChartCanvas"></canvas></div></div>';
-        html += '<div class="card"><div style="font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:12px">월별 현금흐름 표</div>';
+        html += '<div class="card"><div style="font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:12px">월별 현금흐름 표 <span style="font-size:11px;color:#64748b;font-weight:400">· 행을 클릭하면 해당 월의 유입/유출 상세가 펼쳐집니다</span></div>';
         html += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
         html += '<thead><tr style="border-bottom:1px solid #334155;color:#94a3b8">';
         html += '<th style="text-align:left;padding:8px">월</th>';
@@ -2771,14 +2877,17 @@ function render() {
         html += '</tr></thead><tbody>';
         rows.forEach(r => {
           const isCur = r.ym === curYm;
-          const bg = isCur ? 'background:#1e293b' : '';
-          html += '<tr style="border-bottom:1px solid #1e293b;'+bg+'">';
-          html += '<td style="padding:8px;color:#e2e8f0">'+r.ym+(isCur?' <span style="font-size:10px;color:#fbbf24">(현재)</span>':'')+'</td>';
+          const isExpanded = expandedCashflowYm === r.ym;
+          const bg = isExpanded ? 'background:#1e293b' : (isCur ? 'background:#172033' : '');
+          const arrow = isExpanded ? '▼' : '▶';
+          html += '<tr onclick="toggleCashflowMonth(\''+r.ym+'\')" style="border-bottom:1px solid #1e293b;cursor:pointer;'+bg+'">';
+          html += '<td style="padding:8px;color:#e2e8f0"><span style="display:inline-block;width:14px;color:#64748b;font-size:10px">'+arrow+'</span> '+r.ym+(isCur?' <span style="font-size:10px;color:#fbbf24">(현재)</span>':'')+'</td>';
           html += '<td style="padding:8px;text-align:right;color:#60a5fa">'+(r.inn>0?fmt(r.inn):'-')+'</td>';
           html += '<td style="padding:8px;text-align:right;color:#f87171">'+(r.out>0?'-'+fmt(r.out):'-')+'</td>';
           html += '<td style="padding:8px;text-align:right;font-weight:600;color:'+colorNet(r.net)+'">'+(r.net>=0?'+':'')+fmt(r.net)+'</td>';
           html += '<td style="padding:8px;text-align:right;color:'+colorNet(r.cum)+'">'+(r.cum>=0?'+':'')+fmt(r.cum)+'</td>';
           html += '</tr>';
+          if (isExpanded) html += buildDetail(r.ym);
         });
         html += '</tbody></table></div>';
         window.__cashflowChartData = rows;
@@ -3027,6 +3136,10 @@ function drawCashflowChart() {
       }
     }
   });
+}
+function toggleCashflowMonth(ym) {
+  expandedCashflowYm = (expandedCashflowYm === ym) ? null : ym;
+  render();
 }
 function setYear(y) { currentYear=y; selectedMonthIdx=null; render(); }
 function setMonth(idx) { selectedMonthIdx=parseInt(idx); render(); }
