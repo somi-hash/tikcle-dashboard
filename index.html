@@ -1466,10 +1466,11 @@ async function gasUpdateStatus(campaign, client, status) {
       clearTimeout(timeoutId);
       delete window[cbName];
       script.remove();
-      alert('GAS 요청 오류. GAS URL을 확인해주세요.');
+      dbg('❌ gasUpdateStatus onerror: ' + url.substring(0, 120));
+      alert('GAS 요청 오류.\n\n가능한 원인:\n• GAS가 재배포 필요\n• 네트워크 일시 오류\n\n잠시 후 다시 시도해주세요.');
       resolve(false);
     };
-    document.head.appendChild(script);
+    document.body.appendChild(script); // head 대신 body: 일부 브라우저 head onerror 방지
   });
 }
 // ─── 상태 배지 클릭 → 드롭다운 수정 ──────────────────────────────
@@ -1515,6 +1516,10 @@ async function openStatusEdit(uid, campaign, client, current) {
     sel.style.opacity = '0.5';
     const ok = await gasUpdateStatus(campaign, client, newVal);
     if (ok) {
+      // CAMPAIGN_DATA 즉시 반영
+      CAMPAIGN_DATA.forEach(d => {
+        if (String(d.campaign) === campaign && String(d.client) === client) d.campStatus = newVal;
+      });
       const m = smap[newVal] || {bg:'#1e293b',color:'#94a3b8',label:newVal};
       const newHTML = '<span id="'+uid+'" style="display:inline-block;padding:2px 7px;border-radius:10px;background:'+m.bg+';color:'+m.color+';font-size:10px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent" onmouseenter="this.style.borderColor=\''+m.color+'44\'" onmouseleave="this.style.borderColor=\'transparent\'" onclick="openStatusEdit(\''+uid+'\',\''+esc2(campaign)+'\',\''+esc2(client)+'\',\''+esc2(newVal)+'\')" title="클릭하여 수정">'+m.label+'</span>';
       const tmp = document.createElement('span');
@@ -1604,6 +1609,7 @@ function openTimelineEdit(client, brand, year, month, product, country, item, di
   modal.dataset.brand = brand;
   modal.dataset.year = year;
   modal.dataset.month = month;
+  modal.dataset.product = product || '';
   modal.dataset.country = country || '';
   modal.dataset.item = item || '';
   modal.style.display = 'flex';
@@ -1611,6 +1617,21 @@ function openTimelineEdit(client, brand, year, month, product, country, item, di
 function closeTimelineModal() {
   const modal = document.getElementById('timelineEditModal');
   if (modal) modal.style.display = 'none';
+}
+function patchCampaignData(client, brand, year, month, product, dates) {
+  const mo = parseInt(month), yr = String(year);
+  CAMPAIGN_DATA.forEach(d => {
+    if (String(d.client) === client && String(d.brand) === brand &&
+        String(d.year) === yr && parseInt(d.month) === mo &&
+        (!product || String(d.product) === product)) {
+      if (dates.discStart   !== undefined) d.discStart   = dates.discStart   || null;
+      if (dates.discEnd     !== undefined) d.discEnd     = dates.discEnd     || null;
+      if (dates.shipStart   !== undefined) d.shipStart   = dates.shipStart   || null;
+      if (dates.recStart    !== undefined) d.recStart    = dates.recStart    || null;
+      if (dates.recEnd      !== undefined) d.recEnd      = dates.recEnd      || null;
+      if (dates.contractEnd !== undefined) d.contractEnd = dates.contractEnd || null;
+    }
+  });
 }
 function showToast(msg) {
   let t = document.getElementById('_toast');
@@ -1646,14 +1667,26 @@ async function saveTimelineEdit() {
   if (btn) { btn.disabled = true; btn.textContent = '저장 중...'; }
   const result = await gasUpdateTimeline(client, brand, year, month, country, item, dates);
   if (btn) { btn.disabled = false; btn.textContent = '저장'; }
+  // GAS 응답 없음(timeout)이어도 시트엔 저장됐을 수 있으므로 로컬 반영 여부 묻기
+  if (!result) {
+    const applyLocal = confirm('⏱ GAS 응답 시간 초과\n시트에는 저장됐을 수 있습니다.\n대시보드에 입력한 날짜를 바로 반영할까요?');
+    if (applyLocal) {
+      closeTimelineModal();
+      patchCampaignData(client, brand, year, month, modal.dataset.product||'', dates);
+      render();
+      showToast('⚠️ 대시보드 반영 완료 (시트 확인 권장)');
+    }
+    return;
+  }
   if (result && result.success) {
     if ((result.updated || 0) === 0) {
       const dbgInfo = result.debug ? '\n\n[GAS 샘플 데이터]\n'+(result.debug.sample||[]).join('\n') : '';
       alert('⚠️ 매칭된 행 없음 (0건 업데이트)\n\n[요청값]\n고객사: '+client+'\n브랜드: '+brand+'\n년: '+year+' (→'+result.debug?.reqYear+')\n월: '+month+dbgInfo+'\n\n→ GAS의 COL_CLIENT/BRAND/YEAR/MONTH 컬럼 번호를 확인해주세요.');
     } else {
       closeTimelineModal();
+      patchCampaignData(client, brand, year, month, modal.dataset.product||'', dates);
+      render();
       showToast('✅ '+result.updated+'행 업데이트 완료');
-      loadData(true);
     }
   }
 }
