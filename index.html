@@ -1789,60 +1789,58 @@ function renderGPBar(canvas, waterfall, monthly, onClickBar) {
   const labels = waterfall.map(w => w.ym);
   const isFut = waterfall.map(w => isFutureMonth(w.ym));
   const isCur = waterfall.map(w => isCurrentMonth(w.ym));
-  // Build a map from ym to totalIn
   const inMap = {};
   (monthly||[]).forEach(m => { inMap[m.ym] = m.totalIn || 0; });
-  const inData = waterfall.map(w => inMap[w.ym] || 0);
-  const gpData = waterfall.map(w => w.gp);
-  const marginData = waterfall.map((w,i) => inData[i] > 0 ? parseFloat(((w.gp / inData[i]) * 100).toFixed(1)) : null);
-  // MoM GP change labels for datalabels plugin (fallback: draw in afterDraw)
-  const momGPLabels = gpData.map((gp, i) => {
-    if (i === 0) return null;
-    const diff = gp - gpData[i-1];
-    if (diff === 0) return null;
-    return { diff, label: (diff >= 0 ? '▲ ' : '▼ ') + fmtW(Math.abs(diff)) };
-  });
-  const gpBg = waterfall.map((w,i) => isFut[i] ? 'rgba(79,70,229,0.3)' : isCur[i] ? '#818cf8' : '#4f46e5');
-  const inBg = waterfall.map((w,i) => isFut[i] ? 'rgba(34,211,238,0.2)' : isCur[i] ? 'rgba(34,211,238,0.6)' : 'rgba(34,211,238,0.35)');
+  const inData  = waterfall.map(w => inMap[w.ym] || 0);
+  const gpData  = waterfall.map(w => w.gp);
+  // 매출 중 GP를 제외한 원가 부분
+  const costData = inData.map((v, i) => Math.max(0, v - gpData[i]));
+  // 이익률: 경과 월만, 미래는 null
+  const marginData = waterfall.map((w, i) =>
+    (!isFut[i] && inData[i] > 0) ? parseFloat(((w.gp / inData[i]) * 100).toFixed(1)) : null
+  );
+  // 막대 색상
+  const gpBg   = waterfall.map((w,i) => isFut[i] ? 'rgba(79,70,229,0.25)' : isCur[i] ? '#818cf8' : '#4f46e5');
+  const costBg = waterfall.map((w,i) => isFut[i] ? 'rgba(34,211,238,0.12)' : 'rgba(34,211,238,0.22)');
   gpBarChart = new Chart(canvas, {
     type: 'bar',
     data: {
       labels,
       datasets: [
         {
-          label: '수취예정(매출)',
-          data: inData,
-          backgroundColor: inBg,
-          borderColor: waterfall.map((w,i) => isFut[i] ? 'rgba(34,211,238,0.4)' : 'transparent'),
-          borderWidth: waterfall.map((w,i) => isFut[i] ? 1.5 : 0),
-          borderRadius: 6,
+          label: '매출총이익(GP)',
+          data: gpData,
+          backgroundColor: gpBg,
+          borderRadius: 0,
+          borderSkipped: 'bottom',
+          stack: 's1',
           yAxisID: 'y',
           order: 2
         },
         {
-          label: '매출총이익',
-          data: gpData,
-          backgroundColor: gpBg,
-          borderColor: waterfall.map((w,i) => isFut[i] ? 'rgba(129,140,248,0.6)' : 'transparent'),
-          borderWidth: waterfall.map((w,i) => isFut[i] ? 1.5 : 0),
-          borderRadius: 6,
+          label: '원가(매출-GP)',
+          data: costData,
+          backgroundColor: costBg,
+          borderRadius: { topLeft: 5, topRight: 5 },
+          borderSkipped: 'bottom',
+          stack: 's1',
           yAxisID: 'y',
-          order: 1
+          order: 3
         },
         {
-          label: '매출총이익률(%)',
+          label: '이익률(%)',
           data: marginData,
           type: 'line',
           yAxisID: 'y2',
           borderColor: '#4ade80',
-          backgroundColor: 'rgba(74,222,128,0.08)',
+          backgroundColor: 'transparent',
           borderWidth: 2,
-          pointRadius: 4,
-          pointBackgroundColor: waterfall.map((w,i) => isFut[i] ? 'rgba(74,222,128,0.4)' : '#4ade80'),
+          pointRadius: waterfall.map((w,i) => isFut[i] ? 0 : 4),
+          pointBackgroundColor: '#4ade80',
           tension: 0.3,
           fill: false,
           order: 0,
-          spanGaps: true
+          spanGaps: false
         }
       ]
     },
@@ -1852,6 +1850,7 @@ function renderGPBar(canvas, waterfall, monthly, onClickBar) {
       onClick: (e, elements) => {
         if (elements.length) onClickBar(elements[0].index);
       },
+      interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: {
           display: true,
@@ -1861,43 +1860,46 @@ function renderGPBar(canvas, waterfall, monthly, onClickBar) {
         tooltip: {
           callbacks: {
             label: c => {
-              const ym = labels[c.dataIndex];
               const fut = isFut[c.dataIndex] ? ' (예정)' : '';
-              if (c.dataset.label === '매출총이익률(%)') return '이익률: ' + (c.raw !== null ? c.raw.toFixed(1) : '—') + '%' + fut;
-              return c.dataset.label + ': ' + fmtW(c.raw) + fut;
+              if (c.dataset.label === '이익률(%)') return c.raw !== null ? '이익률: ' + c.raw.toFixed(1) + '%' + fut : null;
+              if (c.dataset.label === '원가(매출-GP)') return '매출: ' + fmtW(inData[c.dataIndex]) + fut;
+              return 'GP: ' + fmtW(c.raw) + fut;
             }
           }
         }
       },
       scales: {
-        x: { ticks: { color: waterfall.map(w => isFutureMonth(w.ym) ? 'rgba(148,163,184,0.4)' : '#94a3b8') } },
-        y: { ticks: { callback: v => fmt(v) }, grid: { color: 'rgba(100,116,139,0.15)' } },
+        x: { stacked: true, ticks: { color: waterfall.map(w => isFutureMonth(w.ym) ? 'rgba(148,163,184,0.4)' : '#94a3b8') } },
+        y: { stacked: true, ticks: { callback: v => fmt(v) }, grid: { color: 'rgba(100,116,139,0.15)' } },
         y2: {
           position: 'right',
           ticks: { callback: v => v + '%', color: '#4ade80', font: { size: 10 } },
           grid: { drawOnChartArea: false },
-          min: 0,
-          max: 100
+          min: 0, max: 100
         }
       },
       animation: {
         onComplete: function() {
           const chart = this;
           const ctx = chart.ctx;
-          const gpDs = chart.data.datasets[1];
-          const meta = chart.getDatasetMeta(1);
+          // GP 데이터셋(index 0) 기준으로 바 위치 참조
+          const meta = chart.getDatasetMeta(0);
           ctx.save();
           ctx.font = 'bold 10px sans-serif';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'bottom';
-          momGPLabels.forEach((item, i) => {
-            if (!item) return;
-            const bar = meta.data[i];
-            if (!bar) return;
-            const x = bar.x;
-            const y = bar.y - 4;
-            ctx.fillStyle = item.diff >= 0 ? '#4ade80' : '#f87171';
-            ctx.fillText(item.label, x, y);
+          gpData.forEach((gp, i) => {
+            if (gp === 0 && costData[i] === 0) return;
+            // 전체 막대(GP+원가) 상단 y 좌표
+            const metaCost = chart.getDatasetMeta(1);
+            const topBar = metaCost.data[i];
+            if (!topBar) return;
+            const x = topBar.x;
+            const y = topBar.y - 4;
+            // GP 값을 억 단위로 표시
+            const label = (gp / 1e8).toFixed(2) + '억';
+            ctx.fillStyle = isFut[i] ? 'rgba(129,140,248,0.5)' : '#a5b4fc';
+            ctx.fillText(label, x, y);
           });
           ctx.restore();
         }
@@ -1910,7 +1912,6 @@ function renderWaterfall(canvas, waterfall) {
   const wfFuture = waterfall.map(w => isFutureMonth(w.ym));
   const wfOpacity = (base, isFut) => {
     if (!isFut) return base;
-    // Parse rgba or hex to apply reduced opacity
     if (base.startsWith('#')) {
       const r = parseInt(base.slice(1,3),16), g = parseInt(base.slice(3,5),16), b = parseInt(base.slice(5,7),16);
       return 'rgba('+r+','+g+','+b+',0.3)';
@@ -1918,60 +1919,72 @@ function renderWaterfall(canvas, waterfall) {
     return base.replace(/[\d.]+\)$/,'0.3)');
   };
   const wfGPArr = waterfall.map(w => w.gp);
+  // 억 단위 포맷: ▲X.XX억
+  const fmtEok = (v) => (Math.abs(v) / 1e8).toFixed(2) + '억';
   const wfMomLabels = wfGPArr.map((gp, i) => {
     if (i === 0) return null;
     const diff = gp - wfGPArr[i-1];
     if (diff === 0) return null;
-    return { diff, label: (diff >= 0 ? '▲ ' : '▼ ') + fmtW(Math.abs(diff)) };
-  });
-  // Positive and negative stacks separately for correct bar-top positioning
-  const posTotal = waterfall.map(w => {
-    let s = 0;
-    if (w.newGP > 0) s += w.newGP;
-    if (w.reGP > 0) s += w.reGP;
-    if (w.contChg > 0) s += w.contChg;
-    return s;
+    return { diff, label: (diff >= 0 ? '▲' : '▼') + fmtEok(diff) };
   });
   wfChart = new Chart(canvas, { type:'bar', data: { labels: waterfall.map(w=>w.ym), datasets: [
     { label:'신규 유입', data:waterfall.map(w=>w.newGP), backgroundColor:waterfall.map((w,i)=>wfOpacity('#10b981',wfFuture[i])), borderRadius:3 },
     { label:'복귀', data:waterfall.map(w=>w.reGP), backgroundColor:waterfall.map((w,i)=>wfOpacity('#38bdf8',wfFuture[i])), borderRadius:3 },
     { label:'기존 고객 변동', data:waterfall.map(w=>w.contChg), backgroundColor:waterfall.map((w,i)=>wfOpacity(w.contChg>=0?'#f59e0b':'#fb923c',wfFuture[i])), borderRadius:3 },
-    { label:'종료 이탈', data:waterfall.map(w=>w.endGP), backgroundColor:waterfall.map((w,i)=>wfOpacity('#ef4444',wfFuture[i])), borderRadius:3 }
+    { label:'종료·이탈', data:waterfall.map(w=>w.endGP), backgroundColor:waterfall.map((w,i)=>wfOpacity('#ef4444',wfFuture[i])), borderRadius:3 }
   ]}, options: { responsive:true, maintainAspectRatio:false,
+    interaction: { mode:'index', intersect:false },
     plugins:{
       legend:{position:'bottom', labels:{color:'#94a3b8', font:{size:11}, boxWidth:12, padding:12}},
-      tooltip:{callbacks:{label:c=>{
-        const w = waterfall[c.dataIndex]; const total = w.gp;
-        const pctVal = total!==0 ? ((c.raw/total)*100).toFixed(1) : '0.0';
-        return c.dataset.label+': '+fmtW(c.raw)+' ('+pctVal+'%)'+(isFutureMonth(w.ym)?' (예정)':'');
-      }}}
+      tooltip:{
+        callbacks:{
+          title: items => items[0]?.label + (isFutureMonth(items[0]?.label) ? ' (예정)' : ''),
+          label: () => null,
+          afterBody: items => {
+            const idx = items[0]?.dataIndex;
+            if (idx === undefined) return [];
+            const w = waterfall[idx];
+            const fut = isFutureMonth(w.ym) ? ' (예정)' : '';
+            const sign = v => v >= 0 ? '+' : '';
+            return [
+              '  신규 유입:    ' + sign(w.newGP) + fmtW(w.newGP),
+              '  복귀:        ' + sign(w.reGP) + fmtW(w.reGP),
+              '  기존 고객:   ' + sign(w.contChg) + fmtW(w.contChg),
+              '  종료·이탈:  ' + fmtW(w.endGP),
+              '─────────────────',
+              '  당월 GP:     ' + fmtW(w.gp) + fut
+            ];
+          }
+        }
+      }
     },
-    scales:{x:{stacked:true, ticks:{color:waterfall.map(w=>isFutureMonth(w.ym)?'rgba(148,163,184,0.4)':'#94a3b8')}}, y:{stacked:true, ticks:{callback:v=>fmt(v)}, grid:{color:'rgba(100,116,139,0.15)'}}},
+    scales:{
+      x:{stacked:true, ticks:{color:waterfall.map(w=>isFutureMonth(w.ym)?'rgba(148,163,184,0.4)':'#94a3b8')}},
+      y:{stacked:true, ticks:{callback:v=>fmt(v)}, grid:{color:'rgba(100,116,139,0.15)'}}
+    },
     animation: {
       onComplete: function() {
         const chart = this;
         const ctx = chart.ctx;
-        const meta0 = chart.getDatasetMeta(0); // 신규유입 bars (first positive)
         ctx.save();
         ctx.font = 'bold 10px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
         wfMomLabels.forEach((item, i) => {
           if (!item) return;
-          // Find the topmost bar for this index
+          // 가장 높은 막대(양수 스택 상단) y 좌표 찾기
           let topY = Infinity;
+          let barX = null;
           [0,1,2,3].forEach(dsIdx => {
             const m = chart.getDatasetMeta(dsIdx);
             if (m && m.data[i]) {
-              const barY = m.data[i].y;
-              if (barY < topY) topY = barY;
+              if (m.data[i].y < topY) topY = m.data[i].y;
+              if (barX === null) barX = m.data[i].x;
             }
           });
-          if (topY === Infinity) return;
-          const bar = meta0.data[i];
-          if (!bar) return;
+          if (topY === Infinity || barX === null) return;
           ctx.fillStyle = item.diff >= 0 ? '#4ade80' : '#f87171';
-          ctx.fillText(item.label, bar.x, topY - 4);
+          ctx.fillText(item.label, barX, topY - 4);
         });
         ctx.restore();
       }
@@ -2154,11 +2167,15 @@ function render() {
   const overallMargin = totalIn > 0 ? (totalGP/totalIn)*100 : 0;
   if(!monthly.length){ document.getElementById('app').innerHTML='<div style="text-align:center;padding:60px;color:#f87171">선택한 기간에 데이터가 없습니다.</div>'; return; }
   const months = currentYear==='all' ? monthly.length : 12;
-  const elapsedCount = monthly.filter(m => !isFutureMonth(m.ym)).length;
+  const elapsedMonths = monthly.filter(m => !isFutureMonth(m.ym));
+  const elapsedCount = elapsedMonths.length;
   const remainingCount = Math.max(1, months - elapsedCount);
-  const avgActual = elapsedCount > 0 ? totalGP / elapsedCount : 0;
-  const avgNeeded = (ANNUAL_TARGET - totalGP) / remainingCount;
-  const pct = (totalGP/ANNUAL_TARGET)*100;
+  // 진행 월(경과 월)만 누적한 수치 — 카드 표시용
+  const elapsedGP = elapsedMonths.reduce((s,m)=>s+(m.gp||0), 0);
+  const elapsedIn = elapsedMonths.reduce((s,m)=>s+(m.totalIn||0), 0);
+  const avgActual = elapsedCount > 0 ? elapsedGP / elapsedCount : 0;
+  const avgNeeded = (ANNUAL_TARGET - elapsedGP) / remainingCount;
+  const pct = (elapsedGP/ANNUAL_TARGET)*100;
   const yearLabel = currentYear==='25'?'2025년':currentYear==='26'?'2026년':'전체';
   const midx = selectedMonthIdx !== null && selectedMonthIdx < monthly.length ? selectedMonthIdx : (()=>{
     const now = new Date();
@@ -2281,25 +2298,41 @@ function render() {
       <div class="card">
         <h2>📊 ${yearLabel} 연간 목표 달성 현황</h2>
         <p class="sub">연간 목표: ${fmtW(ANNUAL_TARGET)} (50억)</p>
-        <div style="display:flex;align-items:center;gap:16px;flex-wrap:nowrap">
-          <div style="flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div style="display:flex;gap:20px;align-items:stretch">
+          <!-- 좌: 계기판 + 카드 세로 나열 -->
+          <div style="flex:0 0 200px;display:flex;flex-direction:column;align-items:center;gap:8px">
             <canvas id="gaugeCanvas"></canvas>
+            <div style="width:100%;display:flex;flex-direction:column;gap:6px">
+              <div class="stat-box accent-cyan" style="padding:8px 12px">
+                <div class="label" style="font-size:10px">누적 매출 <span style="color:#475569">(${elapsedCount}개월)</span></div>
+                <div class="value" style="color:#22d3ee;font-size:16px;margin-top:2px">${fmt(elapsedIn)}</div>
+              </div>
+              <div class="stat-box accent-indigo" style="padding:8px 12px">
+                <div class="label" style="font-size:10px">누적 매출총이익 <span style="color:#475569">(${elapsedCount}개월)</span></div>
+                <div class="value" style="color:#818cf8;font-size:16px;margin-top:2px">${fmt(elapsedGP)}</div>
+              </div>
+              <div class="stat-box ${ANNUAL_TARGET-elapsedGP>0?'accent-amber':'accent-green'}" style="padding:8px 12px">
+                <div class="label" style="font-size:10px">잔여 총이익 목표</div>
+                <div class="value" style="color:${ANNUAL_TARGET-elapsedGP>0?'#f59e0b':'#4ade80'};font-size:16px;margin-top:2px">${ANNUAL_TARGET-elapsedGP>0?fmt(ANNUAL_TARGET-elapsedGP):'달성!'}</div>
+              </div>
+              <div class="stat-box accent-cyan" style="padding:8px 12px">
+                <div class="label" style="font-size:10px">실제 GP 월평균 <span style="color:#475569">(${elapsedCount}개월)</span></div>
+                <div class="value" style="color:#22d3ee;font-size:16px;margin-top:2px">${fmt(Math.round(avgActual))}</div>
+              </div>
+              <div class="stat-box ${avgNeeded>avgActual?'accent-red':'accent-green'}" style="padding:8px 12px">
+                <div class="label" style="font-size:10px">잔여 GP 월평균 <span style="color:#475569">(잔여 ${remainingCount}개월)</span></div>
+                <div class="value" style="color:${avgNeeded>avgActual?'#f87171':'#4ade80'};font-size:16px;margin-top:2px">${avgNeeded<=0?'달성!':fmt(Math.round(avgNeeded))}</div>
+              </div>
+            </div>
           </div>
-          <div class="stat-grid-6" style="flex:1 1 0;display:grid;grid-template-columns:repeat(6,1fr);gap:8px">
-            <div class="stat-box accent-cyan" style="min-width:0"><div class="label">누적 수취예정(매출)</div><div class="value" style="color:#22d3ee;font-size:clamp(12px,1.2vw,18px)">${fmt(totalIn)}</div></div>
-            <div class="stat-box accent-indigo" style="min-width:0"><div class="label">누적 매출총이익</div><div class="value" style="color:#818cf8;font-size:clamp(12px,1.2vw,18px)">${fmt(totalGP)}</div></div>
-            <div class="stat-box accent-green" style="min-width:0"><div class="label">누적 이익률</div><div class="value" style="color:#4ade80;font-size:clamp(12px,1.2vw,18px)">${overallMargin.toFixed(1)}%</div></div>
-            <div class="stat-box ${ANNUAL_TARGET-totalGP>0?'accent-amber':'accent-green'}" style="min-width:0"><div class="label">잔여 목표</div><div class="value" style="color:${ANNUAL_TARGET-totalGP>0?'#f59e0b':'#4ade80'};font-size:clamp(12px,1.2vw,18px)">${ANNUAL_TARGET-totalGP>0?fmt(ANNUAL_TARGET-totalGP):'달성!'}</div></div>
-            <div class="stat-box accent-cyan" style="min-width:0"><div class="label">실제 GP 월평균 <span style="color:#475569;font-size:10px">(${elapsedCount}개월)</span></div><div class="value" style="color:#22d3ee;font-size:clamp(12px,1.2vw,18px)">${fmt(Math.round(avgActual))}</div></div>
-            <div class="stat-box ${avgNeeded>avgActual?'accent-red':'accent-green'}" style="min-width:0"><div class="label">필요 GP 월평균 <span style="color:#475569;font-size:10px">(잔여 ${remainingCount}개월)</span></div><div class="value" style="color:${avgNeeded>avgActual?'#f87171':'#4ade80'};font-size:clamp(12px,1.2vw,18px)">${avgNeeded<=0?'달성!':fmt(Math.round(avgNeeded))}</div></div>
+          <!-- 우: 누적 GP 달성 추이 그래프 -->
+          <div style="flex:1 1 0;display:flex;flex-direction:column;justify-content:flex-start">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <span style="font-size:12px;font-weight:600;color:#94a3b8">누적 GP 달성 추이</span>
+              <span style="font-size:10px;color:#475569">— 목표 누적 라인 (균등 배분 기준)</span>
+            </div>
+            <div style="flex:1;min-height:320px"><canvas id="cumCanvas"></canvas></div>
           </div>
-        </div>
-        <div style="margin-top:16px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:12px;font-weight:600;color:#94a3b8">누적 GP 달성 추이</span>
-            <span style="font-size:10px;color:#475569">— 목표 누적 라인 (균등 배분 기준)</span>
-          </div>
-          <div style="height:240px"><canvas id="cumCanvas"></canvas></div>
         </div>
       </div>
       <div class="card">
