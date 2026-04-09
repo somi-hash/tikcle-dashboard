@@ -1474,7 +1474,8 @@ async function gasUpdateStatus(campaign, client, status) {
   });
 }
 // ─── 상태 배지 클릭 → 드롭다운 수정 ──────────────────────────────
-async function openStatusEdit(uid, campaign, client, current) {
+// brand/year/month/product/country/item 은 타임라인 미등록 테이블에서만 전달 (노TL 전용 + 버튼용)
+async function openStatusEdit(uid, campaign, client, current, brand, year, month, product, country, item) {
   const el = document.getElementById(uid);
   if (!el) return;
   const opts = ['운영 전','운영 중','마감','홀딩'];
@@ -1490,7 +1491,12 @@ async function openStatusEdit(uid, campaign, client, current) {
     .replace(/^마감[\s\S]*$/, '마감')
     .replace(/^홀딩[\s\S]*$/, '홀딩');
   const origHTML = el.outerHTML;
-  const esc2 = s => String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const esc2 = s => String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const hasExtra = !!(brand && year && month); // noTL 전용 추가 데이터 여부
+
+  // ── 드롭다운 + (+ 버튼) 래퍼 컨테이너 ──
+  const container = document.createElement('span');
+  container.style.cssText = 'display:inline-flex;align-items:center;gap:4px';
 
   const sel = document.createElement('select');
   sel.style.cssText = 'font-size:10px;background:#1e293b;color:#e2e8f0;border:1px solid #4ade80;border-radius:8px;padding:2px 6px;cursor:pointer;outline:none;';
@@ -1500,41 +1506,92 @@ async function openStatusEdit(uid, campaign, client, current) {
     if (o === v) opt.selected = true;
     sel.appendChild(opt);
   });
-  el.replaceWith(sel);
-  sel.focus();
+  container.appendChild(sel);
+
+  // ── "+" 버튼 (noTL 전용: 운영 중 선택 시 활성화) ──
+  let plusBtn = null;
+  let skipBlur = false;
+  if (hasExtra) {
+    plusBtn = document.createElement('button');
+    plusBtn.textContent = '+';
+    plusBtn.title = '타임라인 · 제품명 · 마감여부 입력';
+    plusBtn.style.cssText = 'padding:2px 8px;background:#818cf8;border:none;border-radius:6px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;display:' + (v === '운영 중' ? 'inline-block' : 'none');
+    container.appendChild(plusBtn);
+
+    // 드롭다운 변경 시 + 버튼 표시/숨김
+    sel.addEventListener('change', () => {
+      if (plusBtn) plusBtn.style.display = sel.value === '운영 중' ? 'inline-block' : 'none';
+    });
+
+    // + 버튼 클릭 시: blur 억제 → 상태 저장 → 타임라인 모달 열기
+    plusBtn.addEventListener('mousedown', () => { skipBlur = true; });
+    plusBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      skipBlur = false;
+      const newVal = sel.value;
+      // 상태가 바뀌었으면 먼저 저장
+      if (newVal !== v) {
+        sel.disabled = true; sel.style.opacity = '0.5';
+        const ok = await gasUpdateStatus(campaign, client, newVal);
+        if (ok) {
+          CAMPAIGN_DATA.forEach(d => {
+            if (String(d.campaign) === campaign && String(d.client) === client) d.campStatus = newVal;
+          });
+        }
+        sel.disabled = false; sel.style.opacity = '1';
+      }
+      // 컨테이너를 원래 배지 형태로 교체 (+ 버튼은 없음 — 모달에서 처리)
+      const m = smap[newVal] || {bg:'#1e293b',color:'#94a3b8',label:newVal};
+      const extraArgs = ',\''+esc2(brand)+'\',\''+esc2(String(year))+'\',\''+esc2(String(month))+'\',\''+esc2(product||'')+'\',\''+esc2(country||'')+'\',\''+esc2(item||'')+'\'';
+      const newHTML = '<span id="'+uid+'" style="display:inline-block;padding:2px 7px;border-radius:10px;background:'+m.bg+';color:'+m.color+';font-size:10px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent" onmouseenter="this.style.borderColor=\''+m.color+'44\'" onmouseleave="this.style.borderColor=\'transparent\'" onclick="openStatusEdit(\''+uid+'\',\''+esc2(campaign)+'\',\''+esc2(client)+'\',\''+esc2(newVal)+'\''+extraArgs+')" title="클릭하여 수정">'+m.label+'</span>';
+      const tmp = document.createElement('span');
+      tmp.innerHTML = newHTML;
+      if (container.parentNode) container.replaceWith(tmp.firstChild);
+      // 타임라인 모달 열기 (날짜는 모두 빈 값, campStatus는 현재 선택값)
+      openTimelineEdit(client, brand, year, month, product||'', country||'', item||'', '', '', '', '', '', '', newVal);
+    });
+  }
+
+  el.replaceWith(container);
+  container.id = uid;
+  el.removeAttribute('id');
+  setTimeout(() => sel.focus(), 10);
 
   let changeHandled = false;
   const revert = () => {
-    if (!sel.parentNode) return;
+    if (!container.parentNode) return;
     const tmp = document.createElement('span');
     tmp.innerHTML = origHTML;
-    sel.replaceWith(tmp.firstChild);
+    container.replaceWith(tmp.firstChild);
   };
 
   sel.addEventListener('change', async () => {
+    if (changeHandled) return;
     changeHandled = true;
     const newVal = sel.value;
     sel.disabled = true;
     sel.style.opacity = '0.5';
     const ok = await gasUpdateStatus(campaign, client, newVal);
     if (ok) {
-      // CAMPAIGN_DATA 즉시 반영
       CAMPAIGN_DATA.forEach(d => {
         if (String(d.campaign) === campaign && String(d.client) === client) d.campStatus = newVal;
       });
       const m = smap[newVal] || {bg:'#1e293b',color:'#94a3b8',label:newVal};
-      const newHTML = '<span id="'+uid+'" style="display:inline-block;padding:2px 7px;border-radius:10px;background:'+m.bg+';color:'+m.color+';font-size:10px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent" onmouseenter="this.style.borderColor=\''+m.color+'44\'" onmouseleave="this.style.borderColor=\'transparent\'" onclick="openStatusEdit(\''+uid+'\',\''+esc2(campaign)+'\',\''+esc2(client)+'\',\''+esc2(newVal)+'\')" title="클릭하여 수정">'+m.label+'</span>';
+      const extraArgs = hasExtra ? ',\''+esc2(brand)+'\',\''+esc2(String(year))+'\',\''+esc2(String(month))+'\',\''+esc2(product||'')+'\',\''+esc2(country||'')+'\',\''+esc2(item||'')+'\'' : '';
+      const newHTML = '<span id="'+uid+'" style="display:inline-block;padding:2px 7px;border-radius:10px;background:'+m.bg+';color:'+m.color+';font-size:10px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent" onmouseenter="this.style.borderColor=\''+m.color+'44\'" onmouseleave="this.style.borderColor=\'transparent\'" onclick="openStatusEdit(\''+uid+'\',\''+esc2(campaign)+'\',\''+esc2(client)+'\',\''+esc2(newVal)+'\''+extraArgs+')" title="클릭하여 수정">'+m.label+'</span>';
       const tmp = document.createElement('span');
       tmp.innerHTML = newHTML;
-      if (sel.parentNode) sel.replaceWith(tmp.firstChild);
+      if (container.parentNode) container.replaceWith(tmp.firstChild);
       showToast('✅ 상태 업데이트 완료');
     } else {
+      changeHandled = false;
       sel.disabled = false;
       sel.style.opacity = '1';
       sel.value = v;
     }
   });
   sel.addEventListener('blur', () => {
+    if (skipBlur) return;
     if (!changeHandled) setTimeout(revert, 150);
   });
   sel.addEventListener('keydown', e => {
@@ -1543,7 +1600,7 @@ async function openStatusEdit(uid, campaign, client, current) {
 }
 
 // ─── GAS: 타임라인 날짜 업데이트 ────────────────────────────────
-async function gasUpdateTimeline(client, brand, year, month, country, item, dates) {
+async function gasUpdateTimeline(client, brand, year, month, country, item, dates, newItem, newCampStatus) {
   if (!GAS_URL) { alert('GAS URL이 설정되지 않았습니다.'); return false; }
   const secret = localStorage.getItem('tkcle_gas_secret') || '';
   if (!secret) { alert('공유 비밀키가 설정되지 않았습니다.'); return false; }
@@ -1580,7 +1637,9 @@ async function gasUpdateTimeline(client, brand, year, month, country, item, date
       '&shipStart=' + encodeURIComponent(dates.shipStart||'') +
       '&recStart=' + encodeURIComponent(dates.recStart||'') +
       '&recEnd=' + encodeURIComponent(dates.recEnd||'') +
-      '&contractEnd=' + encodeURIComponent(dates.contractEnd||'');
+      '&contractEnd=' + encodeURIComponent(dates.contractEnd||'') +
+      (newItem    !== undefined ? '&newItem='        + encodeURIComponent(newItem||'')       : '') +
+      (newCampStatus !== undefined ? '&newCampStatus=' + encodeURIComponent(newCampStatus||'') : '');
     const script = document.createElement('script');
     script.id = cbName;
     script.src = url;
@@ -1594,7 +1653,7 @@ async function gasUpdateTimeline(client, brand, year, month, country, item, date
 }
 
 // ─── Gantt 타임라인 수정 모달 열기 ──────────────────────────────
-function openTimelineEdit(client, brand, year, month, product, country, item, discStart, discEnd, shipStart, recStart, recEnd, contractEnd) {
+function openTimelineEdit(client, brand, year, month, product, country, item, discStart, discEnd, shipStart, recStart, recEnd, contractEnd, campStatus) {
   const modal = document.getElementById('timelineEditModal');
   if (!modal) return;
   const subLabel = [country, item].filter(Boolean).join(' · ');
@@ -1606,6 +1665,15 @@ function openTimelineEdit(client, brand, year, month, product, country, item, di
   document.getElementById('tlm_recStart').value = recStart || '';
   document.getElementById('tlm_recEnd').value = recEnd || '';
   document.getElementById('tlm_contractEnd').value = contractEnd || '';
+  // 제품명 (I열) - 현재 값으로 pre-fill
+  document.getElementById('tlm_itemInput').value = item || '';
+  // 캠페인 마감 여부 (L열) - 정규화 후 pre-fill
+  const normStatus = String(campStatus||'').trim()
+    .replace(/^운영\s*중[\s\S]*$/, '운영 중')
+    .replace(/^운영\s*전[\s\S]*$/, '운영 전')
+    .replace(/^마감[\s\S]*$/, '마감')
+    .replace(/^홀딩[\s\S]*$/, '홀딩');
+  document.getElementById('tlm_campStatus').value = normStatus;
   // Store context
   modal.dataset.client = client;
   modal.dataset.brand = brand;
@@ -1614,13 +1682,14 @@ function openTimelineEdit(client, brand, year, month, product, country, item, di
   modal.dataset.product = product || '';
   modal.dataset.country = country || '';
   modal.dataset.item = item || '';
+  modal.dataset.campStatus = normStatus;
   modal.style.display = 'flex';
 }
 function closeTimelineModal() {
   const modal = document.getElementById('timelineEditModal');
   if (modal) modal.style.display = 'none';
 }
-function patchCampaignData(client, brand, year, month, product, dates) {
+function patchCampaignData(client, brand, year, month, product, dates, newItem, newCampStatus) {
   const mo = parseInt(month), yr = String(year);
   CAMPAIGN_DATA.forEach(d => {
     if (String(d.client) === client && String(d.brand) === brand &&
@@ -1632,6 +1701,8 @@ function patchCampaignData(client, brand, year, month, product, dates) {
       if (dates.recStart    !== undefined) d.recStart    = dates.recStart    || null;
       if (dates.recEnd      !== undefined) d.recEnd      = dates.recEnd      || null;
       if (dates.contractEnd !== undefined) d.contractEnd = dates.contractEnd || null;
+      if (newItem     !== undefined && newItem !== null) d.item       = newItem;
+      if (newCampStatus !== undefined && newCampStatus !== null) d.campStatus = newCampStatus;
     }
   });
 }
@@ -1665,16 +1736,19 @@ async function saveTimelineEdit() {
     recEnd: document.getElementById('tlm_recEnd').value,
     contractEnd: document.getElementById('tlm_contractEnd').value,
   };
+  // 새로 추가된 필드
+  const newItem       = document.getElementById('tlm_itemInput').value.trim();
+  const newCampStatus = document.getElementById('tlm_campStatus').value;
   const btn = document.getElementById('tlm_saveBtn');
   if (btn) { btn.disabled = true; btn.textContent = '저장 중...'; }
-  const result = await gasUpdateTimeline(client, brand, year, month, country, item, dates);
+  const result = await gasUpdateTimeline(client, brand, year, month, country, item, dates, newItem, newCampStatus);
   if (btn) { btn.disabled = false; btn.textContent = '저장'; }
   // GAS 응답 없음(timeout)이어도 시트엔 저장됐을 수 있으므로 로컬 반영 여부 묻기
   if (!result) {
     const applyLocal = confirm('⏱ GAS 응답 시간 초과\n시트에는 저장됐을 수 있습니다.\n대시보드에 입력한 날짜를 바로 반영할까요?');
     if (applyLocal) {
       closeTimelineModal();
-      patchCampaignData(client, brand, year, month, modal.dataset.product||'', dates);
+      patchCampaignData(client, brand, year, month, modal.dataset.product||'', dates, newItem, newCampStatus);
       render();
       showToast('⚠️ 대시보드 반영 완료 (시트 확인 권장)');
     }
@@ -1686,7 +1760,7 @@ async function saveTimelineEdit() {
       alert('⚠️ 매칭된 행 없음 (0건 업데이트)\n\n[요청값]\n고객사: '+client+'\n브랜드: '+brand+'\n년: '+year+' (→'+result.debug?.reqYear+')\n월: '+month+dbgInfo+'\n\n→ GAS의 COL_CLIENT/BRAND/YEAR/MONTH 컬럼 번호를 확인해주세요.');
     } else {
       closeTimelineModal();
-      patchCampaignData(client, brand, year, month, modal.dataset.product||'', dates);
+      patchCampaignData(client, brand, year, month, modal.dataset.product||'', dates, newItem, newCampStatus);
       render();
       showToast('✅ '+result.updated+'행 업데이트 완료');
     }
@@ -2906,7 +2980,7 @@ function render() {
               const isEditable = !!GAS_URL && !!localStorage.getItem('tkcle_gas_secret');
               const escQ = s => String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
               const tdExtra = isEditable
-                ? ' onclick="openTimelineEdit(\''+escQ(p.client)+'\',\''+escQ(p.brand)+'\',\''+escQ(p.year)+'\','+p.month+',\''+escQ(p.product)+'\',\''+escQ(p.country||'')+'\',\''+escQ(p.item||'')+'\',\''+escQ(p.discStart||'')+'\',\''+escQ(p.discEnd||'')+'\',\''+escQ(p.shipStart||'')+'\',\''+escQ(p.recStart||'')+'\',\''+escQ(p.recEnd||'')+'\',\''+escQ(p.contractEnd||'')+'\')" title="클릭하여 일정 수정" style="position:relative;height:26px;padding:0;cursor:pointer"'
+                ? ' onclick="openTimelineEdit(\''+escQ(p.client)+'\',\''+escQ(p.brand)+'\',\''+escQ(p.year)+'\','+p.month+',\''+escQ(p.product)+'\',\''+escQ(p.country||'')+'\',\''+escQ(p.item||'')+'\',\''+escQ(p.discStart||'')+'\',\''+escQ(p.discEnd||'')+'\',\''+escQ(p.shipStart||'')+'\',\''+escQ(p.recStart||'')+'\',\''+escQ(p.recEnd||'')+'\',\''+escQ(p.contractEnd||'')+'\',\''+escQ(p.campStatus||'')+'\')" title="클릭하여 일정 수정" style="position:relative;height:26px;padding:0;cursor:pointer"'
                 : ' style="position:relative;height:26px;padding:0"';
               return '<td colspan="'+totalDays+'"'+tdExtra+'>'+barsHTML+'</td>';
             };
@@ -2955,16 +3029,18 @@ function render() {
               const sq = d.squad || '미지정';
               if (campCsmFilter !== 'all' && sq !== campCsmFilter) return;
               const key = d.campaign + '||' + d.client;
-              const dYm = String(d.year||'').padStart(2,'0')+'년 '+String(d.month||'').padStart(2,'0')+'월';
-              if (!campByName[key]) campByName[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, country:d.country||'', item:d.item||'', squad:sq, recEnd:null, recStart:null, discStart:null, shipStart:null, contractEnd:null, tgtRec:0, gp:0, hasDates:false, recEndYm:null};
+              const yr2 = String(d.year||'').replace(/^20/,''); // "2026" → "26"
+              const dYm = yr2 && d.month ? yr2+'/'+d.month : null; // "26/3" 형식
+              if (!campByName[key]) campByName[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, country:d.country||'', item:d.item||'', squad:sq, campStatus:d.campStatus||'', recEnd:null, recStart:null, discStart:null, shipStart:null, contractEnd:null, tgtRec:0, gp:0, hasDates:false, recEndYm:null};
               const c = campByName[key];
               // recEnd가 더 늦은 행이 나오면 해당 행의 squad·연월로 업데이트 (담당 정확도)
               if (d.recEnd && (!c.recEnd || d.recEnd > c.recEnd)) {
                 c.recEnd = d.recEnd;
                 c.squad = sq;
-                c.recEndYm = (dYm && dYm !== '00년 00월') ? dYm : null;
+                c.recEndYm = dYm || null;
               }
               if (d.country) { c.country = d.country; c.item = d.item||''; }
+              if (d.campStatus) c.campStatus = d.campStatus;
               c.recStart = minD(c.recStart, d.recStart);
               c.discStart = minD(c.discStart, d.discStart);
               c.shipStart = minD(c.shipStart, d.shipStart);
@@ -2992,7 +3068,7 @@ function render() {
             noTimelineCamps.forEach(d => {
               const key = d.campaign+'||'+d.client;
               const ymLabel = String(d.year||'').replace(/^20/,'')+'/'+(d.month||'');
-              if (!noTLMap[key]) noTLMap[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, country:d.country||'', item:d.item||'', squad:d.squad||'미지정', ym:ymLabel, gp:0, campStatus:d.campStatus||''};
+              if (!noTLMap[key]) noTLMap[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, country:d.country||'', item:d.item||'', squad:d.squad||'미지정', ym:ymLabel, year:String(d.year||''), month:String(d.month||''), gp:0, campStatus:d.campStatus||''};
               noTLMap[key].gp += (d.gp||0);
               if (d.country) { noTLMap[key].country = d.country; noTLMap[key].item = d.item||''; }
               // 상태값이 있으면 덮어쓰기 (나중 행 기준)
@@ -3039,6 +3115,28 @@ function render() {
               const m = smap[v] || {bg:'#1e293b',color:'#94a3b8',label:v};
               return '<span id="'+uid+'" style="display:inline-block;padding:2px 7px;border-radius:10px;background:'+m.bg+';color:'+m.color+';font-size:10px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent" onmouseenter="this.style.borderColor=\''+m.color+'44\'" onmouseleave="this.style.borderColor=\'transparent\'" onclick="openStatusEdit(\''+uid+'\',\''+esc(campaign)+'\',\''+esc(client)+'\',\''+esc(v)+'\')" title="클릭하여 수정">'+m.label+'</span>';
             };
+            // noTL 전용: extra args(brand/year/month/product/country/item) 포함 → + 버튼 활성화
+            const statusEditCellNoTL = (c) => {
+              const v = String(c.campStatus||'').trim()
+                .replace(/^운영\s*중[\s\S]*$/, '운영 중')
+                .replace(/^운영\s*전[\s\S]*$/, '운영 전')
+                .replace(/^마감[\s\S]*$/, '마감')
+                .replace(/^홀딩[\s\S]*$/, '홀딩');
+              if (!canEdit) return statusBadge(v);
+              const uid = 'sb_' + Math.random().toString(36).slice(2, 9);
+              const esc = s => String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+              const smap = {
+                '운영 전': {bg:'#422006',color:'#fbbf24',label:'운영 전'},
+                '운영 중': {bg:'#14532d',color:'#4ade80',label:'운영 중'},
+                '마감':    {bg:'#1e293b',color:'#94a3b8',label:'마감'},
+                '홀딩':    {bg:'#3b1c1c',color:'#f87171',label:'홀딩'},
+              };
+              // brand/year/month 는 openStatusEdit 의 5~10번째 인자로 전달 → + 버튼 활성화
+              const extraArgs = ',\''+esc(c.brand||'')+'\',\''+esc(c.year||'')+'\',\''+esc(c.month||'')+'\',\''+esc(c.product||'')+'\',\''+esc(c.country||'')+'\',\''+esc(c.item||'')+'\'';
+              if (!v) return '<span id="'+uid+'" style="color:#475569;font-size:10px;cursor:pointer" onclick="openStatusEdit(\''+uid+'\',\''+esc(c.campaign)+'\',\''+esc(c.client)+'\',\'\''+extraArgs+')">—</span>';
+              const m = smap[v] || {bg:'#1e293b',color:'#94a3b8',label:v};
+              return '<span id="'+uid+'" style="display:inline-block;padding:2px 7px;border-radius:10px;background:'+m.bg+';color:'+m.color+';font-size:10px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent" onmouseenter="this.style.borderColor=\''+m.color+'44\'" onmouseleave="this.style.borderColor=\'transparent\'" onclick="openStatusEdit(\''+uid+'\',\''+esc(c.campaign)+'\',\''+esc(c.client)+'\',\''+esc(v)+'\''+extraArgs+')" title="클릭하여 수정">'+m.label+'</span>';
+            };
             // ─── 2열 레이아웃: 좌=회수마감예정, 우=타임라인미등록 ───
             let recDueHTML = '';
             if (recDueCamps.length > 0) {
@@ -3052,6 +3150,7 @@ function render() {
                 '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">국가·제품</th>' +
                 '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">담당</th>' +
                 '<th style="text-align:right;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">회수 마감</th>' +
+                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">상태</th>' +
                 '</tr></thead><tbody>' +
                 recDueCamps.map(c =>
                   '<tr style="border-bottom:1px solid #1e293b44">' +
@@ -3061,6 +3160,7 @@ function render() {
                   '<td style="padding:5px 6px;color:#64748b;font-size:10px">'+[c.country,c.item].filter(Boolean).join(' · ')+'</td>' +
                   '<td style="padding:5px 6px;color:#64748b">'+c.squad+'</td>' +
                   '<td style="padding:5px 6px;text-align:right;color:#f59e0b;font-weight:500">'+c.recEnd+'</td>' +
+                  '<td style="padding:5px 6px">'+statusEditCell(c.campaign, c.client, c.campStatus)+'</td>' +
                   '</tr>'
                 ).join('') +
                 '</tbody></table></div>';
@@ -3087,7 +3187,7 @@ function render() {
                   '<td style="padding:5px 6px;color:#94a3b8">'+c.product+'</td>' +
                   '<td style="padding:5px 6px;color:#64748b;font-size:10px">'+[c.country,c.item].filter(Boolean).join(' · ')+'</td>' +
                   '<td style="padding:5px 6px;color:#64748b">'+c.squad+'</td>' +
-                  '<td style="padding:4px 5px">' + statusEditCell(c.campaign, c.client, c.campStatus) + '</td>' +
+                  '<td style="padding:4px 5px">' + statusEditCellNoTL(c) + '</td>' +
                   '</tr>'
                 ).join('') +
                 '</tbody></table></div>';
@@ -3820,6 +3920,18 @@ if (sessionStorage.getItem('tkcle_auth') === '1') {
       <button onclick="closeTimelineModal()" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;padding:0 4px;line-height:1">×</button>
     </div>
     <div style="display:grid;gap:10px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label style="font-size:11px;color:#94a3b8">제품명 (I열)<br><input id="tlm_itemInput" type="text" placeholder="제품명 입력..." style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:5px 8px;font-size:12px;box-sizing:border-box"></label>
+        <label style="font-size:11px;color:#94a3b8">캠페인 마감 여부 (L열)<br>
+          <select id="tlm_campStatus" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:5px 8px;font-size:12px">
+            <option value="">-- 선택 --</option>
+            <option value="운영 전">운영 전</option>
+            <option value="운영 중">운영 중</option>
+            <option value="마감">마감</option>
+            <option value="홀딩">홀딩</option>
+          </select>
+        </label>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <label style="font-size:11px;color:#94a3b8">디스커버리 시작<br><input id="tlm_discStart" type="date" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:5px 8px;font-size:12px"></label>
         <label style="font-size:11px;color:#94a3b8">디스커버리 종료<br><input id="tlm_discEnd" type="date" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:5px 8px;font-size:12px"></label>
