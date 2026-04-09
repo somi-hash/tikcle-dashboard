@@ -836,7 +836,8 @@ function parseGvizResponse(response, forceType) {
         const tgtAccept = numVal(32), tgtShip = numVal(33), tgtRec = numVal(34);
         if (campName) {
           if (!campaignTimeline) campaignTimeline = [];
-          campaignTimeline.push({campaign:campName, client, brand, product, squad, year, month, gp, discStart, discEnd, shipStart, recStart, recEnd, contractEnd, tgtAccept, tgtShip, tgtRec, actualRecEnd});
+          const campStatus = String(val(11)).trim(); // L열=캠페인 마감 여부
+          campaignTimeline.push({campaign:campName, client, brand, product, squad, year, month, gp, discStart, discEnd, shipStart, recStart, recEnd, contractEnd, tgtAccept, tgtShip, tgtRec, actualRecEnd, campStatus});
         }
       }
       for (const a of Object.values(aggMap)) {
@@ -1153,7 +1154,8 @@ function parseCashflowForProducts(response) {
         const rs = numColsCheck ? dateVal2(28) : null, re = numColsCheck ? dateVal2(29) : null, ce = numColsCheck ? dateVal2(30) : null;
         const are = numColsCheck ? dateVal2(34) : null;
         const ta = numColsCheck ? numVal2(31) : 0, ts = numColsCheck ? numVal2(32) : 0, tr = numColsCheck ? numVal2(33) : 0;
-        campList.push({campaign:campName, client, brand, product, squad, year, month, gp, discStart:ds, discEnd:de, shipStart:ss, recStart:rs, recEnd:re, contractEnd:ce, tgtAccept:ta, tgtShip:ts, tgtRec:tr, actualRecEnd:are});
+        const campStatus = String(val(11)).trim(); // L열=캠페인 마감 여부
+        campList.push({campaign:campName, client, brand, product, squad, year, month, gp, discStart:ds, discEnd:de, shipStart:ss, recStart:rs, recEnd:re, contractEnd:ce, tgtAccept:ta, tgtShip:ts, tgtRec:tr, actualRecEnd:are, campStatus});
       }
     }
     // Array 형태로 변환 (GP 내림차순 정렬)
@@ -2712,10 +2714,27 @@ function render() {
             const noTLMap = {};
             noTimelineCamps.forEach(d => {
               const key = d.campaign+'||'+d.client;
-              if (!noTLMap[key]) noTLMap[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, squad:d.squad||'미지정', gp:0};
+              if (!noTLMap[key]) noTLMap[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, squad:d.squad||'미지정', gp:0, campStatus:d.campStatus||''};
               noTLMap[key].gp += (d.gp||0);
+              // 상태값이 있으면 덮어쓰기 (나중 행 기준)
+              if (d.campStatus) noTLMap[key].campStatus = d.campStatus;
             });
             const noTLList = Object.values(noTLMap).filter(c => c.gp > 0).sort((a,b) => a.client.localeCompare(b.client));
+            // 캠페인 상태 배지 렌더러
+            const statusBadge = (s) => {
+              const v = String(s||'').trim();
+              if (!v) return '<span style="color:#475569;font-size:10px">—</span>';
+              const map = {
+                '운영 전': {bg:'#1e3a5f',color:'#60a5fa',label:'운영 전'},
+                '운영전':  {bg:'#1e3a5f',color:'#60a5fa',label:'운영 전'},
+                '운영 중': {bg:'#14532d',color:'#4ade80',label:'운영 중'},
+                '운영중':  {bg:'#14532d',color:'#4ade80',label:'운영 중'},
+                '마감':    {bg:'#1e293b',color:'#94a3b8',label:'마감'},
+                '홀딩':    {bg:'#3b1c1c',color:'#f87171',label:'홀딩'},
+              };
+              const m = map[v] || {bg:'#1e293b',color:'#94a3b8',label:v};
+              return '<span style="display:inline-block;padding:2px 7px;border-radius:10px;background:'+m.bg+';color:'+m.color+';font-size:10px;font-weight:600;white-space:nowrap">'+m.label+'</span>';
+            };
             // ─── 2열 레이아웃: 좌=회수마감예정, 우=타임라인미등록 ───
             let recDueHTML = '';
             if (recDueCamps.length > 0) {
@@ -2755,6 +2774,7 @@ function render() {
                 '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">상품</th>' +
                 '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">담당</th>' +
                 '<th style="text-align:right;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">예산</th>' +
+                '<th style="text-align:left;color:#64748b;padding:4px 6px;border-bottom:1px solid #1e293b">상태</th>' +
                 '</tr></thead><tbody>' +
                 noTLList.map(c =>
                   '<tr style="border-bottom:1px solid #1e293b44">' +
@@ -2763,6 +2783,7 @@ function render() {
                   '<td style="padding:5px 6px;color:#64748b">'+c.product+'</td>' +
                   '<td style="padding:5px 6px;color:#64748b">'+c.squad+'</td>' +
                   '<td style="padding:5px 6px;text-align:right;color:#818cf8;font-weight:600">'+(c.gp?fmt(c.gp):'—')+'</td>' +
+                  '<td style="padding:5px 6px">'+statusBadge(c.campStatus)+'</td>' +
                   '</tr>'
                 ).join('') +
                 '</tbody></table></div>';
