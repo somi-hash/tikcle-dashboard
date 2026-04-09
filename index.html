@@ -981,7 +981,7 @@ function parseGvizResponse(response, forceType) {
           productMap[pKey][product].inAmt += inAmt;
         }
         // ─── Campaign timeline data (cols 2,26~35) ───
-        const campName = String(val(2)).trim();
+        const campName = String(val(1)).trim();
         const dateVal = (idx) => { const v = val(idx); if (!v) return null; const s = String(v).trim(); if (!s || s === '—') return null; if (s.match(/^Date\(/)) { const dm = s.match(/Date\((\d+),(\d+),(\d+)\)/); if(dm) return new Date(+dm[1],+dm[2],+dm[3]).toISOString().slice(0,10); } return s.length >= 10 ? s.slice(0,10) : null; };
         const numVal = (idx) => { const v = val(idx); return v ? (parseInt(v) || 0) : 0; };
         const discStart = dateVal(26), discEnd = dateVal(27), shipStart = dateVal(28);
@@ -1232,14 +1232,14 @@ function parseCashflowForProducts(response) {
       const c = row.c;
       if (!c) continue;
       const val = (idx) => c[idx] ? (c[idx].v !== null && c[idx].v !== undefined ? c[idx].v : (c[idx].f || '')) : '';
-      const client = String(val(3)).trim();   // D=고객사
-      const brand = String(val(4)).trim();    // E=브랜드
-      const product = String(val(5)).trim();  // F=상품
-      const squad = String(val(7)).trim();    // H=담당스쿼드
-      const year = String(val(13)).replace(/['"]/g,'').trim(); // N=연도
-      const month = parseInt(val(14));        // O=월
-      const inAmt = parseFloat(String(val(15)).replace(/[₩,W]/g,'')) || 0;  // P=수취
-      const outAmt = parseFloat(String(val(16)).replace(/[₩,W]/g,'')) || 0; // Q=지급
+      const client = String(val(2)).trim();   // C=고객사
+      const brand = String(val(3)).trim();    // D=브랜드
+      const product = String(val(4)).trim();  // E=상품
+      const squad = String(val(6)).trim();    // G=담당스쿼드
+      const year = String(val(12)).replace(/['"]/g,'').trim(); // M=연도
+      const month = parseInt(val(13));        // N=월
+      const inAmt = parseFloat(String(val(14)).replace(/[₩,W]/g,'')) || 0;  // O=수취
+      const outAmt = parseFloat(String(val(15)).replace(/[₩,W]/g,'')) || 0; // P=지급
       if (!client || !product || isNaN(month)) continue;
       const gp = inAmt - outAmt;
       // 매칭 키: 고객사|브랜드|담당스쿼드|연도|월 (통합정산 C~G ↔ cashflow D,E,H,N,O)
@@ -1250,12 +1250,12 @@ function parseCashflowForProducts(response) {
       productMap[pKey][product].inAmt += inAmt;
       rowCount++;
       // Campaign timeline extraction
-      const campName = String(val(2)).trim();
+      const campName = String(val(1)).trim();
       const dateVal2 = (idx) => { const v = val(idx); if (!v) return null; const s = String(v).trim(); if (!s || s === '—') return null; if (s.match(/^Date\(/)) { const dm = s.match(/Date\((\d+),(\d+),(\d+)\)/); if(dm) return new Date(+dm[1],+dm[2],+dm[3]).toISOString().slice(0,10); } return s.length >= 10 ? s.slice(0,10) : null; };
       const numVal2 = (idx) => { const v = val(idx); return v ? (parseInt(v) || 0) : 0; };
-      if (numCols > 26 && campName) {
-        const ds = dateVal2(26), de = dateVal2(27), ss = dateVal2(28), rs = dateVal2(29), re = dateVal2(30), ce = dateVal2(31), are = dateVal2(35);
-        const ta = numVal2(32), ts = numVal2(33), tr = numVal2(34);
+      if (numCols > 25 && campName) {
+        const ds = dateVal2(25), de = dateVal2(26), ss = dateVal2(27), rs = dateVal2(28), re = dateVal2(29), ce = dateVal2(30), are = dateVal2(34);
+        const ta = numVal2(31), ts = numVal2(32), tr = numVal2(33);
         if (ds || ss || rs || ce) {
           campList.push({campaign:campName, client, brand, product, squad, year, month, gp, discStart:ds, discEnd:de, shipStart:ss, recStart:rs, recEnd:re, contractEnd:ce, tgtAccept:ta, tgtShip:ts, tgtRec:tr, actualRecEnd:are});
         }
