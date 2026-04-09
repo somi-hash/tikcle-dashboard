@@ -252,7 +252,7 @@ _OLD_MAIN_GIDS.forEach(g => {
 });
 let SHEETS_ID = localStorage.getItem('tkcle_sheets_id') || DEFAULT_SHEETS_ID;
 let MAIN_GID = parseInt(localStorage.getItem('tkcle_main_gid')) || DEFAULT_MAIN_GID;
-let GAS_URL = localStorage.getItem('tkcle_gas_url') || '';
+let GAS_URL = localStorage.getItem('tkcle_gas_url') || 'https://script.google.com/macros/s/AKfycbzwfGeS_BuvLCq2RDfbEAnbSwH0KPSGY_sRiXunDLNCjM0jIcNTmpW6EUNYW668nVk/exec';
 let dataSource = 'fallback';
 let lastUpdateTime = null;
 let isLoading = false;
@@ -1413,25 +1413,212 @@ async function gasUpdateStatus(campaign, client, status) {
     alert('공유 비밀키가 설정되지 않았습니다.\n설정 패널에서 비밀키를 입력해주세요.');
     return false;
   }
-  try {
-    const resp = await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' }, // GAS CORS 우회
-      body: JSON.stringify({ secret, action: 'updateStatus', campaign, client, status })
-    });
-    const result = await resp.json();
-    if (result.success) {
-      dbg('✅ 상태 업데이트: '+campaign+' / '+client+' → '+status+' ('+result.updated+'행)');
-      return true;
+  return new Promise((resolve) => {
+    const cbName = '_gasWrite_' + Date.now();
+    const timeoutId = setTimeout(() => {
+      delete window[cbName];
+      const s = document.getElementById(cbName);
+      if (s) s.remove();
+      alert('GAS 응답 시간 초과. GAS URL을 확인해주세요.');
+      resolve(false);
+    }, 10000);
+
+    window[cbName] = (result) => {
+      clearTimeout(timeoutId);
+      delete window[cbName];
+      const s = document.getElementById(cbName);
+      if (s) s.remove();
+      if (result.success) {
+        dbg('✅ 상태 업데이트: '+campaign+' / '+client+' → '+status+' ('+result.updated+'행)');
+        resolve(true);
+      } else {
+        alert('업데이트 실패: ' + (result.error || '알 수 없는 오류'));
+        resolve(false);
+      }
+    };
+
+    const sep = GAS_URL.indexOf('?') >= 0 ? '&' : '?';
+    const url = GAS_URL + sep +
+      'callback=' + cbName +
+      '&action=updateStatus' +
+      '&secret=' + encodeURIComponent(secret) +
+      '&campaign=' + encodeURIComponent(campaign) +
+      '&client=' + encodeURIComponent(client) +
+      '&status=' + encodeURIComponent(status);
+
+    const script = document.createElement('script');
+    script.id = cbName;
+    script.src = url;
+    script.onerror = () => {
+      clearTimeout(timeoutId);
+      delete window[cbName];
+      script.remove();
+      alert('GAS 요청 오류. GAS URL을 확인해주세요.');
+      resolve(false);
+    };
+    document.head.appendChild(script);
+  });
+}
+// ─── 상태 배지 클릭 → 드롭다운 수정 ──────────────────────────────
+async function openStatusEdit(uid, campaign, client, current) {
+  const el = document.getElementById(uid);
+  if (!el) return;
+  const opts = ['운영 전','운영 중','마감','홀딩'];
+  const smap = {
+    '운영 전': {bg:'#422006',color:'#fbbf24',label:'운영 전'},
+    '운영 중': {bg:'#14532d',color:'#4ade80',label:'운영 중'},
+    '마감':    {bg:'#1e293b',color:'#94a3b8',label:'마감'},
+    '홀딩':    {bg:'#3b1c1c',color:'#f87171',label:'홀딩'},
+  };
+  const v = String(current||'').trim()
+    .replace(/^운영\s*중\s*[\(\（].*[\)\）]?\s*$/, '운영 중')
+    .replace(/^운영\s*전\s*[\(\（].*[\)\）]?\s*$/, '운영 전');
+  const origHTML = el.outerHTML;
+  const esc2 = s => String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+
+  const sel = document.createElement('select');
+  sel.style.cssText = 'font-size:10px;background:#1e293b;color:#e2e8f0;border:1px solid #4ade80;border-radius:8px;padding:2px 6px;cursor:pointer;outline:none;';
+  opts.forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o; opt.textContent = o;
+    if (o === v) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  el.replaceWith(sel);
+  sel.focus();
+
+  let changeHandled = false;
+  const revert = () => {
+    if (!sel.parentNode) return;
+    const tmp = document.createElement('span');
+    tmp.innerHTML = origHTML;
+    sel.replaceWith(tmp.firstChild);
+  };
+
+  sel.addEventListener('change', async () => {
+    changeHandled = true;
+    const newVal = sel.value;
+    sel.disabled = true;
+    sel.style.opacity = '0.5';
+    const ok = await gasUpdateStatus(campaign, client, newVal);
+    if (ok) {
+      const m = smap[newVal] || {bg:'#1e293b',color:'#94a3b8',label:newVal};
+      const newHTML = '<span id="'+uid+'" style="display:inline-block;padding:2px 7px;border-radius:10px;background:'+m.bg+';color:'+m.color+';font-size:10px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent" onmouseenter="this.style.borderColor=\''+m.color+'44\'" onmouseleave="this.style.borderColor=\'transparent\'" onclick="openStatusEdit(\''+uid+'\',\''+esc2(campaign)+'\',\''+esc2(client)+'\',\''+esc2(newVal)+'\')" title="클릭하여 수정">'+m.label+'</span>';
+      const tmp = document.createElement('span');
+      tmp.innerHTML = newHTML;
+      if (sel.parentNode) sel.replaceWith(tmp.firstChild);
     } else {
-      alert('업데이트 실패: ' + (result.error||'알 수 없는 오류'));
-      return false;
+      sel.disabled = false;
+      sel.style.opacity = '1';
+      sel.value = v;
     }
-  } catch(e) {
-    alert('GAS 요청 오류: ' + e.message);
-    return false;
+  });
+  sel.addEventListener('blur', () => {
+    if (!changeHandled) setTimeout(revert, 150);
+  });
+  sel.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { changeHandled = true; revert(); }
+  });
+}
+
+// ─── GAS: 타임라인 날짜 업데이트 ────────────────────────────────
+async function gasUpdateTimeline(client, brand, year, month, dates) {
+  if (!GAS_URL) { alert('GAS URL이 설정되지 않았습니다.'); return false; }
+  const secret = localStorage.getItem('tkcle_gas_secret') || '';
+  if (!secret) { alert('공유 비밀키가 설정되지 않았습니다.'); return false; }
+  return new Promise((resolve) => {
+    const cbName = '_gasTL_' + Date.now();
+    const timeoutId = setTimeout(() => {
+      delete window[cbName];
+      const s = document.getElementById(cbName);
+      if (s) s.remove();
+      alert('GAS 응답 시간 초과.');
+      resolve(false);
+    }, 10000);
+    window[cbName] = (result) => {
+      clearTimeout(timeoutId);
+      delete window[cbName];
+      const s = document.getElementById(cbName);
+      if (s) s.remove();
+      if (result.success) { resolve(true); }
+      else { alert('타임라인 업데이트 실패: ' + (result.error || '알 수 없는 오류')); resolve(false); }
+    };
+    const sep = GAS_URL.indexOf('?') >= 0 ? '&' : '?';
+    const url = GAS_URL + sep +
+      'callback=' + cbName +
+      '&action=updateTimeline' +
+      '&secret=' + encodeURIComponent(secret) +
+      '&client=' + encodeURIComponent(client) +
+      '&brand=' + encodeURIComponent(brand) +
+      '&year=' + encodeURIComponent(year) +
+      '&month=' + encodeURIComponent(month) +
+      '&discStart=' + encodeURIComponent(dates.discStart||'') +
+      '&discEnd=' + encodeURIComponent(dates.discEnd||'') +
+      '&shipStart=' + encodeURIComponent(dates.shipStart||'') +
+      '&recStart=' + encodeURIComponent(dates.recStart||'') +
+      '&recEnd=' + encodeURIComponent(dates.recEnd||'') +
+      '&contractEnd=' + encodeURIComponent(dates.contractEnd||'');
+    const script = document.createElement('script');
+    script.id = cbName;
+    script.src = url;
+    script.onerror = () => {
+      clearTimeout(timeoutId); delete window[cbName]; script.remove();
+      alert('GAS 요청 오류.');
+      resolve(false);
+    };
+    document.head.appendChild(script);
+  });
+}
+
+// ─── Gantt 타임라인 수정 모달 열기 ──────────────────────────────
+function openTimelineEdit(client, brand, year, month, product, discStart, discEnd, shipStart, recStart, recEnd, contractEnd) {
+  const modal = document.getElementById('timelineEditModal');
+  if (!modal) return;
+  document.getElementById('tlm_client').textContent = client + ' / ' + brand + ' (' + year + '년 ' + String(month).padStart(2,'0') + '월)';
+  document.getElementById('tlm_product').textContent = product;
+  document.getElementById('tlm_discStart').value = discStart || '';
+  document.getElementById('tlm_discEnd').value = discEnd || '';
+  document.getElementById('tlm_shipStart').value = shipStart || '';
+  document.getElementById('tlm_recStart').value = recStart || '';
+  document.getElementById('tlm_recEnd').value = recEnd || '';
+  document.getElementById('tlm_contractEnd').value = contractEnd || '';
+  // Store context
+  modal.dataset.client = client;
+  modal.dataset.brand = brand;
+  modal.dataset.year = year;
+  modal.dataset.month = month;
+  modal.style.display = 'flex';
+}
+function closeTimelineModal() {
+  const modal = document.getElementById('timelineEditModal');
+  if (modal) modal.style.display = 'none';
+}
+async function saveTimelineEdit() {
+  const modal = document.getElementById('timelineEditModal');
+  if (!modal) return;
+  const client = modal.dataset.client;
+  const brand = modal.dataset.brand;
+  const year = modal.dataset.year;
+  const month = modal.dataset.month;
+  const dates = {
+    discStart: document.getElementById('tlm_discStart').value,
+    discEnd: document.getElementById('tlm_discEnd').value,
+    shipStart: document.getElementById('tlm_shipStart').value,
+    recStart: document.getElementById('tlm_recStart').value,
+    recEnd: document.getElementById('tlm_recEnd').value,
+    contractEnd: document.getElementById('tlm_contractEnd').value,
+  };
+  const btn = document.getElementById('tlm_saveBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '저장 중...'; }
+  const ok = await gasUpdateTimeline(client, brand, year, month, dates);
+  if (btn) { btn.disabled = false; btn.textContent = '저장'; }
+  if (ok) {
+    closeTimelineModal();
+    alert('✅ 일정이 업데이트되었습니다. 데이터를 새로고침합니다.');
+    loadData(true);
   }
 }
+
 function toggleGasGuide() {
   const el = document.getElementById('gasGuide');
   if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
@@ -2491,7 +2678,7 @@ function render() {
               if (!tree[cl]) tree[cl] = {};
               if (!tree[cl][br]) tree[cl][br] = {};
               if (!tree[cl][br][ym]) tree[cl][br][ym] = {};
-              if (!tree[cl][br][ym][prod]) tree[cl][br][ym][prod] = {product:prod, client:cl, brand:br, squad:sq, discStart:null, discEnd:null, shipStart:null, recStart:null, recEnd:null, contractEnd:null, actualRecEnd:null, tgtRec:0, count:0};
+              if (!tree[cl][br][ym][prod]) tree[cl][br][ym][prod] = {product:prod, client:cl, brand:br, squad:sq, year:String(d.year||''), month:d.month||0, discStart:null, discEnd:null, shipStart:null, recStart:null, recEnd:null, contractEnd:null, actualRecEnd:null, tgtRec:0, count:0};
               const p = tree[cl][br][ym][prod];
               p.count++;
               p.discStart = minD(p.discStart, d.discStart);
@@ -2637,7 +2824,12 @@ function render() {
                   barsHTML += '<div style="position:absolute;left:'+mLeft+'%;width:1px;height:26px;top:0;background:#334155;z-index:0"></div>';
                 }
               });
-              return '<td colspan="'+totalDays+'" style="position:relative;height:26px;padding:0">'+barsHTML+'</td>';
+              const isEditable = !!GAS_URL && !!localStorage.getItem('tkcle_gas_secret');
+              const escQ = s => String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+              const tdExtra = isEditable
+                ? ' onclick="openTimelineEdit(\''+escQ(p.client)+'\',\''+escQ(p.brand)+'\',\''+escQ(p.year)+'\','+p.month+',\''+escQ(p.product)+'\',\''+escQ(p.discStart||'')+'\',\''+escQ(p.discEnd||'')+'\',\''+escQ(p.shipStart||'')+'\',\''+escQ(p.recStart||'')+'\',\''+escQ(p.recEnd||'')+'\',\''+escQ(p.contractEnd||'')+'\')" title="클릭하여 일정 수정" style="position:relative;height:26px;padding:0;cursor:pointer"'
+                : ' style="position:relative;height:26px;padding:0"';
+              return '<td colspan="'+totalDays+'"'+tdExtra+'>'+barsHTML+'</td>';
             };
             // ─── Build rows: Client → Brand → Month → Product(count) ───
             let bodyHTML = '';
@@ -2740,23 +2932,24 @@ function render() {
               const m = map[v] || {bg:'#1e293b',color:'#94a3b8',label:v};
               return '<span style="display:inline-block;padding:2px 7px;border-radius:10px;background:'+m.bg+';color:'+m.color+';font-size:10px;font-weight:600;white-space:nowrap">'+m.label+'</span>';
             };
-            // GAS 연동 시 상태 셀: 드롭다운 선택 → 시트 즉시 반영
+            // GAS 연동 시 상태 셀: 배지 기본, 클릭 → 드롭다운 수정
             const canEdit = !!GAS_URL && !!localStorage.getItem('tkcle_gas_secret');
             const statusEditCell = (campaign, client, current) => {
               const v = String(current||'').trim()
                 .replace(/^운영\s*중\s*[\(\（].*[\)\）]?\s*$/, '운영 중')
                 .replace(/^운영\s*전\s*[\(\（].*[\)\）]?\s*$/, '운영 전');
               if (!canEdit) return statusBadge(v);
-              const opts = ['운영 전','운영 중','마감','홀딩'];
-              const esc = s => s.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-              const selStyle = 'font-size:10px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:2px 6px;cursor:pointer;';
-              return '<select style="'+selStyle+'" onchange="(async()=>{'+
-                'const ok=await gasUpdateStatus(\''+esc(campaign)+'\',\''+esc(client)+'\',this.value);'+
-                'if(ok){this.style.borderColor=\'#4ade80\';setTimeout(()=>{this.style.borderColor=\'#334155\'},1500);}'+
-                'else{this.value=\''+esc(v)+'\';}'+
-              '})()">' +
-              opts.map(o => '<option value="'+o+'"'+(o===v?' selected':'')+'>'+o+'</option>').join('') +
-              '</select>';
+              const uid = 'sb_' + Math.random().toString(36).slice(2, 9);
+              const esc = s => String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+              const smap = {
+                '운영 전': {bg:'#422006',color:'#fbbf24',label:'운영 전'},
+                '운영 중': {bg:'#14532d',color:'#4ade80',label:'운영 중'},
+                '마감':    {bg:'#1e293b',color:'#94a3b8',label:'마감'},
+                '홀딩':    {bg:'#3b1c1c',color:'#f87171',label:'홀딩'},
+              };
+              if (!v) return '<span id="'+uid+'" style="color:#475569;font-size:10px;cursor:pointer" onclick="openStatusEdit(\''+uid+'\',\''+esc(campaign)+'\',\''+esc(client)+'\',\'\')">—</span>';
+              const m = smap[v] || {bg:'#1e293b',color:'#94a3b8',label:v};
+              return '<span id="'+uid+'" style="display:inline-block;padding:2px 7px;border-radius:10px;background:'+m.bg+';color:'+m.color+';font-size:10px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent" onmouseenter="this.style.borderColor=\''+m.color+'44\'" onmouseleave="this.style.borderColor=\'transparent\'" onclick="openStatusEdit(\''+uid+'\',\''+esc(campaign)+'\',\''+esc(client)+'\',\''+esc(v)+'\')" title="클릭하여 수정">'+m.label+'</span>';
             };
             // ─── 2열 레이아웃: 좌=회수마감예정, 우=타임라인미등록 ───
             let recDueHTML = '';
@@ -3527,5 +3720,37 @@ if (sessionStorage.getItem('tkcle_auth') === '1') {
 </script>
   
  
+<!-- 타임라인 날짜 수정 모달 -->
+<div id="timelineEditModal" onclick="if(event.target===this)closeTimelineModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:#1e293b;border:1px solid #334155;border-radius:14px;padding:24px;min-width:340px;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+      <div>
+        <div style="font-size:15px;font-weight:700;color:#e2e8f0">📅 일정 수정</div>
+        <div id="tlm_client" style="font-size:12px;color:#818cf8;margin-top:2px"></div>
+        <div id="tlm_product" style="font-size:11px;color:#64748b;margin-top:1px"></div>
+      </div>
+      <button onclick="closeTimelineModal()" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;padding:0 4px;line-height:1">×</button>
+    </div>
+    <div style="display:grid;gap:10px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label style="font-size:11px;color:#94a3b8">디스커버리 시작<br><input id="tlm_discStart" type="date" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:5px 8px;font-size:12px"></label>
+        <label style="font-size:11px;color:#94a3b8">디스커버리 종료<br><input id="tlm_discEnd" type="date" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:5px 8px;font-size:12px"></label>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label style="font-size:11px;color:#94a3b8">배송 시작<br><input id="tlm_shipStart" type="date" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:5px 8px;font-size:12px"></label>
+        <label style="font-size:11px;color:#94a3b8">회수 시작<br><input id="tlm_recStart" type="date" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:5px 8px;font-size:12px"></label>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label style="font-size:11px;color:#94a3b8">회수 마감<br><input id="tlm_recEnd" type="date" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:5px 8px;font-size:12px"></label>
+        <label style="font-size:11px;color:#94a3b8">계약 종료<br><input id="tlm_contractEnd" type="date" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:5px 8px;font-size:12px"></label>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end">
+      <button onclick="closeTimelineModal()" style="padding:7px 16px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#94a3b8;font-size:13px;cursor:pointer">취소</button>
+      <button id="tlm_saveBtn" onclick="saveTimelineEdit()" style="padding:7px 18px;background:#818cf8;border:none;border-radius:8px;color:#fff;font-size:13px;font-weight:600;cursor:pointer">저장</button>
+    </div>
+    <p style="font-size:10px;color:#475569;margin-top:12px;margin-bottom:0">💡 GAS 연동 시 Google Sheets에 바로 반영됩니다. 빈 값으로 저장하면 해당 날짜가 삭제됩니다.</p>
+  </div>
+</div>
 </body>
 </html>
