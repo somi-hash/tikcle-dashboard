@@ -2987,12 +2987,33 @@ function render() {
         // hm은 이미 currentYear로 필터된 rows에서 만들어짐 → GP는 이미 필터됨
         // TAX_DATA는 별도로 필터해야 함
         const yearStr = currentYear; // '25' | '26' | 'all'
-        // ⚠️ 실제 세발 발행된 건만 (O열 '세발' 컬럼 = invoiceInfo 값이 있는 행만) 포함
+        // ── ym 포맷 정규화: "2026-01" / "26년 01월" / "26년 1월" / Date(...) → "26년 01월" ──
+        const normYm = (s) => {
+          if (s == null || s === '') return '';
+          let str = String(s).trim();
+          let m = str.match(/^(\d{4})[-./](\d{1,2})/);
+          if (m) return m[1].slice(-2) + '년 ' + String(parseInt(m[2])).padStart(2,'0') + '월';
+          m = str.match(/^(\d{2,4})\s*년\s*(\d{1,2})\s*월/);
+          if (m) return (m[1].length === 4 ? m[1].slice(-2) : m[1].padStart(2,'0')) + '년 ' + String(parseInt(m[2])).padStart(2,'0') + '월';
+          m = str.match(/Date\((\d+),(\d+)/);
+          if (m) return String(m[1]).slice(-2) + '년 ' + String(parseInt(m[2])+1).padStart(2,'0') + '월';
+          return str;
+        };
+        const normYear = (d) => {
+          // 우선순위: d.year → 정규화된 ym에서 추출
+          let y = String(d.year || '').replace(/['"]/g,'').trim();
+          if (y.length === 4) y = y.slice(-2);
+          if (y) return y;
+          const ny = normYm(d.ym);
+          const m = ny.match(/^(\d{2})년/);
+          return m ? m[1] : '';
+        };
+        // ⚠️ 실제 세발 발행된 건만 (O열 = invoiceInfo === true) 포함
         const taxRows = (TAX_DATA && TAX_DATA.length)
           ? TAX_DATA.filter(d => {
-              if (!d.invoiceInfo) return false; // 세발 미발행 제외
+              if (!d.invoiceInfo) return false;
               if (yearStr === 'all') return true;
-              return String(d.year||'').replace(/['"]/g,'') === yearStr || String(d.ym||'').startsWith(yearStr+'년');
+              return normYear(d) === yearStr;
             })
           : [];
         // ── 통합 컬럼축 (GP 월 ∪ 세발 월) ─────────────────────────
@@ -3002,7 +3023,10 @@ function render() {
           return [parseInt(m[1]), parseInt(m[2])];
         };
         const ymSet = new Set(hm.months);
-        taxRows.forEach(d => { if (d.ym) ymSet.add(d.ym); });
+        taxRows.forEach(d => {
+          const ny = normYm(d.ym);
+          if (ny) ymSet.add(ny);
+        });
         const allMonths = [...ymSet].sort((a,b) => {
           const [ay,am] = parseYm(a), [by,bm] = parseYm(b);
           return ay === by ? am - bm : ay - by;
@@ -3014,11 +3038,12 @@ function render() {
           c.monthGPs.forEach((v, i) => { gpMap[c.name+'||'+hm.months[i]] = v; });
           (c.monthIns||[]).forEach((v, i) => { inMap[c.name+'||'+hm.months[i]] = v; });
         });
-        // ── 세발(VAT-) 데이터(client × ym) ─────────────────────────
+        // ── 세발(VAT-) 데이터(client × ym) ─ ym은 정규화 적용 ────
         const taxMap = {};
         taxRows.forEach(d => {
-          if (!d.client || !d.ym) return;
-          const k = d.client + '||' + d.ym;
+          const ny = normYm(d.ym);
+          if (!d.client || !ny) return;
+          const k = d.client + '||' + ny;
           taxMap[k] = (taxMap[k] || 0) + (d.taxAmtEx || 0);
         });
         // ── 고객사 합집합 ─────────────────────────────────────────
