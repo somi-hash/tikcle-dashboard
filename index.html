@@ -2692,14 +2692,15 @@ function render() {
               const sq = d.squad || '미지정';
               const ctry = d.country || '';
               const itm  = d.item || '';
-              // country + item으로 행 구분 (COSRX처럼 같은 product에 여러 국가/제품이 있을 때 분리)
-              const leafKey = prod + (ctry ? '||'+ctry : '') + (itm ? '||'+itm : '');
+              // leafKey는 product만 (집계 유지). country/item은 p에 저장해 GAS 매칭에만 사용
               allSquads.add(sq);
               if (!tree[cl]) tree[cl] = {};
               if (!tree[cl][br]) tree[cl][br] = {};
               if (!tree[cl][br][ym]) tree[cl][br][ym] = {};
-              if (!tree[cl][br][ym][leafKey]) tree[cl][br][ym][leafKey] = {product:prod, client:cl, brand:br, squad:sq, country:ctry, item:itm, year:String(d.year||''), month:d.month||0, discStart:null, discEnd:null, shipStart:null, recStart:null, recEnd:null, contractEnd:null, actualRecEnd:null, tgtRec:0, count:0};
-              const p = tree[cl][br][ym][leafKey];
+              if (!tree[cl][br][ym][prod]) tree[cl][br][ym][prod] = {product:prod, client:cl, brand:br, squad:sq, country:ctry, item:itm, year:String(d.year||''), month:d.month||0, discStart:null, discEnd:null, shipStart:null, recStart:null, recEnd:null, contractEnd:null, actualRecEnd:null, tgtRec:0, count:0};
+              const p = tree[cl][br][ym][prod];
+              // country/item: 날짜가 있는 행 우선으로 업데이트
+              if (ctry && (d.discStart || d.recStart || d.recEnd)) { p.country = ctry; p.item = itm; }
               p.count++;
               p.discStart = minD(p.discStart, d.discStart);
               p.discEnd = maxD(p.discEnd, d.discEnd);
