@@ -2829,7 +2829,7 @@ function render() {
               if (!tree[cl]) tree[cl] = {};
               if (!tree[cl][br]) tree[cl][br] = {};
               if (!tree[cl][br][ym]) tree[cl][br][ym] = {};
-              if (!tree[cl][br][ym][prod]) tree[cl][br][ym][prod] = {product:prod, client:cl, brand:br, squad:sq, country:ctry, item:itm, year:String(d.year||''), month:d.month||0, discStart:null, discEnd:null, shipStart:null, recStart:null, recEnd:null, contractEnd:null, actualRecEnd:null, tgtRec:0, count:0};
+              if (!tree[cl][br][ym][prod]) tree[cl][br][ym][prod] = {product:prod, client:cl, brand:br, squad:sq, country:ctry, item:itm, year:String(d.year||''), month:d.month||0, campStatus:d.campStatus||'', discStart:null, discEnd:null, shipStart:null, recStart:null, recEnd:null, contractEnd:null, actualRecEnd:null, tgtRec:0, count:0};
               const p = tree[cl][br][ym][prod];
               // country/item: 날짜가 있는 행 우선으로 업데이트
               if (ctry && (d.discStart || d.recStart || d.recEnd)) { p.country = ctry; p.item = itm; }
@@ -2842,6 +2842,7 @@ function render() {
               p.contractEnd = maxD(p.contractEnd, d.contractEnd);
               p.actualRecEnd = maxD(p.actualRecEnd, d.actualRecEnd);
               p.tgtRec += (d.tgtRec||0);
+              if (d.campStatus) p.campStatus = d.campStatus; // 시트 L열 값 유지
             });
             // ─── Filter: window overlap + CSM filter ───
             const overlaps = (p) => {
@@ -2874,9 +2875,7 @@ function render() {
               '<button onclick="setCampCsmFilter(\'all\')" style="'+btnStyle(campCsmFilter==='all')+'">전체</button>'+
               sqList.map(sq => '<button onclick="setCampCsmFilter(\''+sq.replace(/'/g,"\\'")+'\')" style="'+btnStyle(campCsmFilter===sq)+'">'+sq+'</button>').join('')+
             '</div>';
-            if (totalRows === 0) {
-              return filterHTML + '<div style="text-align:center;padding:40px;color:#64748b">이 기간에 해당하는 캠페인이 없습니다.</div>';
-            }
+            // totalRows === 0 이어도 하단 테이블(회수마감/미등록)은 계속 빌드
             // ─── Day columns ───
             const ganttDays = [];
             let dd = new Date(winStart);
@@ -3195,10 +3194,13 @@ function render() {
               noTLHTML = '<div style="padding:16px;background:#0c1525;border:1px solid #1e293b;border-radius:10px;height:100%;display:flex;align-items:center;justify-content:center;color:#475569;font-size:12px">✅ '+selMonth+'월 타임라인 미등록 없음</div>';
             }
             const bottomSectionHTML = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px">'+recDueHTML+noTLHTML+'</div>';
-            return filterHTML + legendHTML +
-              '<p class="sub" style="margin-bottom:8px">캠페인 현황 · '+winLabel+' · '+totalRows+'건</p>' +
-              '<table style="width:100%;border-collapse:collapse;table-layout:fixed"><colgroup><col style="width:240px"><col span="'+totalDays+'"></colgroup><thead style="position:sticky;top:0;z-index:5;background:#0f172a"><tr><th style="width:240px"></th>'+monthHeaderHTML+'</tr><tr><th style="width:240px;font-size:10px;color:#64748b;text-align:left;padding-left:6px">브랜드 / 월 / 상품</th>'+dayHeaderHTML+'</tr></thead><tbody>'+bodyHTML+'</tbody></table>' +
-              bottomSectionHTML;
+            // CSM 필터로 간트 행은 없지만 하단 테이블(회수마감/미등록)이 있을 수 있음 → 조건부 렌더링
+            const ganttSectionHTML = totalRows === 0
+              ? '<div style="text-align:center;padding:30px 0;color:#64748b;font-size:13px">🔍 이 기간·조건에 해당하는 간트 캠페인이 없습니다.</div>'
+              : legendHTML +
+                '<p class="sub" style="margin-bottom:8px">캠페인 현황 · '+winLabel+' · '+totalRows+'건</p>' +
+                '<table style="width:100%;border-collapse:collapse;table-layout:fixed"><colgroup><col style="width:240px"><col span="'+totalDays+'"></colgroup><thead style="position:sticky;top:0;z-index:5;background:#0f172a"><tr><th style="width:240px"></th>'+monthHeaderHTML+'</tr><tr><th style="width:240px;font-size:10px;color:#64748b;text-align:left;padding-left:6px">브랜드 / 월 / 상품</th>'+dayHeaderHTML+'</tr></thead><tbody>'+bodyHTML+'</tbody></table>';
+            return filterHTML + ganttSectionHTML + bottomSectionHTML;
           })()}
       </div>
     </div>
