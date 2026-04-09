@@ -2984,6 +2984,65 @@ function render() {
           </table>
         </div>
       </div>
+      ${(() => {
+        // 🧾 고객사별 연간 세발 발행 흐름 (TAX_DATA 기반, 캠페인 연월 기준)
+        if (!TAX_DATA || TAX_DATA.length === 0) {
+          return '<div class="card"><h2>🧾 고객사별 연간 세발 발행 흐름</h2><p class="sub" style="color:#94a3b8">세금계산서(세발) 데이터가 아직 로드되지 않았습니다.</p></div>';
+        }
+        // 1) hm.months와 동일한 컬럼축을 쓰되, TAX_DATA 중 hm.months에 없는 월(미래/과거)도 함께 노출
+        const taxYms = new Set();
+        TAX_DATA.forEach(d => { if (d.ym) taxYms.add(d.ym); });
+        const ymSet = new Set(hm.months);
+        taxYms.forEach(y => ymSet.add(y));
+        // 정렬: "YY년 MM월" 파싱
+        const parseYm = s => {
+          const m = String(s).match(/(\d{2,4})\D+(\d{1,2})/);
+          if (!m) return [9999, 99];
+          return [parseInt(m[1]), parseInt(m[2])];
+        };
+        const taxMonths = [...ymSet].sort((a,b) => {
+          const [ay,am] = parseYm(a), [by,bm] = parseYm(b);
+          return ay === by ? am - bm : ay - by;
+        });
+        // 2) client × ym → taxAmtIn 합계
+        const clientYmTax = {};
+        const allTaxClients = new Set();
+        TAX_DATA.forEach(d => {
+          if (!d.client || !d.ym) return;
+          allTaxClients.add(d.client);
+          const k = d.client + '||' + d.ym;
+          clientYmTax[k] = (clientYmTax[k] || 0) + (d.taxAmtIn || 0);
+        });
+        const taxClients = [...allTaxClients].map(cn => {
+          const monthAmts = taxMonths.map(ym => clientYmTax[cn+'||'+ym] || 0);
+          const total = monthAmts.reduce((s,v)=>s+v, 0);
+          return {name: cn, monthAmts, total};
+        }).filter(c => c.total > 0).sort((a,b) => b.total - a.total);
+        const maxTax = Math.max(...taxClients.map(c => Math.max(...c.monthAmts, 0)), 1);
+        const colTotals = taxMonths.map((_, i) => taxClients.reduce((s,c) => s + c.monthAmts[i], 0));
+        const grandTotal = colTotals.reduce((s,v)=>s+v, 0);
+        return '<div class="card" style="margin-top:16px">' +
+          '<h2>🧾 고객사별 연간 세발 발행 흐름</h2>' +
+          '<p class="sub">셀 색상 농도 = 세발(VAT+) 금액 · 캠페인 연월 기준 · 세금계산서 시트(매출정산) 합계</p>' +
+          '<div class="heatmap-wrap">' +
+            '<table class="heatmap-table">' +
+              '<thead><tr><th>고객사</th>' + taxMonths.map(m => '<th>'+m.replace(/년 /,'.')+'</th>').join('') + '<th class="hm-total">합계</th></tr></thead>' +
+              '<tbody>' +
+                taxClients.map(c =>
+                  '<tr><td style="font-weight:500;color:#f8fafc;font-size:12px">'+c.name+'</td>' +
+                  c.monthAmts.map(v =>
+                    '<td><span class="heatmap-cell" style="background:'+heatColor(v, maxTax)+';color:'+(v===0?'#475569':'#f8fafc')+'">'+(v===0?'—':fmt(v))+'</span></td>'
+                  ).join('') +
+                  '<td class="hm-total">'+fmt(c.total)+'</td></tr>'
+                ).join('') +
+                '<tr style="border-top:2px solid #334155;background:#0f172a"><td style="font-weight:700;color:#a5b4fc;font-size:12px">합계</td>' +
+                colTotals.map(v => '<td style="text-align:center;font-weight:600;color:#cbd5e1;font-size:11px">'+(v===0?'—':fmt(v))+'</td>').join('') +
+                '<td class="hm-total" style="color:#a5b4fc">'+fmt(grandTotal)+'</td></tr>' +
+              '</tbody>' +
+            '</table>' +
+          '</div>' +
+        '</div>';
+      })()}
     </div>
     <!-- TAB: Product (NEW) -->
     <div class="tab-content ${currentTab==='product'?'active':''}" id="tab-product">
