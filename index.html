@@ -703,6 +703,8 @@ function parseSettlementResponse(response) {
       const lbl = (cols[i].label||'').trim();
       if (lbl === '세발' || (lbl.includes('세발') && !lbl.includes('금액') && !lbl.includes('증빙'))) { iSebal = i; break; }
     }
+    // 헤더 매칭 실패 시 → O열(인덱스 14)로 폴백
+    if (iSebal < 0 && cols.length > 14) iSebal = 14;
     const iPayDue = findColIndex(cols, ['입금예정일']);
     const iPaid = findColIndex(cols, ['입금여부']);
     if (typeof dbg === 'function') {
@@ -735,7 +737,10 @@ function parseSettlementResponse(response) {
       const taxAmtEx = iTaxEx >= 0 ? (parseFloat(String(val(iTaxEx)).replace(/[₩,W\s]/g,'')) || 0) : 0;
       const taxAmtIn = iTaxIn >= 0 ? (parseFloat(String(val(iTaxIn)).replace(/[₩,W\s]/g,'')) || 0) : 0;
       const issueDate = iIssueDate >= 0 ? dateVal(iIssueDate) : '';
-      const invoiceInfo = iSebal >= 0 ? String(val(iSebal)).trim() : '';
+      // 세발 발행 여부: 체크박스(boolean)/문자열 모두 처리 → invoiceInfo는 발행=true/미발행=false
+      const sebalRaw = iSebal >= 0 ? val(iSebal) : '';
+      const invoiceInfo = (sebalRaw === true || sebalRaw === 'TRUE' || sebalRaw === 'true' || sebalRaw === 1 || sebalRaw === '1' ||
+        (typeof sebalRaw === 'string' && sebalRaw.trim() && sebalRaw.trim().toUpperCase() !== 'FALSE' && sebalRaw.trim() !== '0'));
       const payDueDate = iPayDue >= 0 ? dateVal(iPayDue) : '';
       const paidRaw = iPaid >= 0 ? val(iPaid) : '';
       const paid = paidRaw === true || paidRaw === 'TRUE' || paidRaw === 'true' || paidRaw === '1' || paidRaw === 1;
