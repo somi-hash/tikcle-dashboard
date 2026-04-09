@@ -2853,11 +2853,21 @@ function render() {
                   :(chg==='N'?'<span style="color:#6ee7b7;font-weight:500">NEW</span>'
                   :chg==='R'?'<span style="color:#7dd3fc;font-weight:500">RE</span>'
                   :'<span style="color:#475569">—</span>');
-                // 캠페인별 그룹 (campaign명 기준, 같은 캠페인명 합산)
+                // 캠페인별 그룹 (campaign명 기준, 금액 합산 포함)
+                const normStV2=s=>String(s||'').trim()
+                  .replace(/^운영\s*중[\s\S]*$/,'운영 중').replace(/^운영\s*전[\s\S]*$/,'운영 전')
+                  .replace(/^마감[\s\S]*$/,'마감').replace(/^홀딩[\s\S]*$/,'홀딩');
+                const stBadge2=s=>{
+                  const v=normStV2(s);
+                  const sm={'운영 전':{bg:'#1c1200',co:'#f59e0b',bo:'#92400e'},'운영 중':{bg:'#052e16',co:'#34d399',bo:'#065f46'},'마감':{bg:'#0f172a',co:'#64748b',bo:'#1e293b'},'홀딩':{bg:'#1f0909',co:'#fca5a5',bo:'#7f1d1d'}};
+                  const m=sm[v]; if(!v||!m) return '<span style="color:#334155;font-size:10px">—</span>';
+                  return '<span style="padding:1px 7px;border-radius:10px;background:'+m.bg+';color:'+m.co+';border:1px solid '+m.bo+';font-size:10px;font-weight:600;display:inline-block;white-space:nowrap">'+v+'</span>';
+                };
                 const cg={};
                 bg.camps.forEach(d=>{
                   const k=d.campaign||(d.brand+'_'+d.product+'_'+(d.country||''));
-                  if(!cg[k]) cg[k]={brand:d.brand||'',product:d.product||'',country:d.country||'',item:d.item||'',squad:d.squad||'',campStatus:d.campStatus||''};
+                  if(!cg[k]) cg[k]={brand:d.brand||'',product:d.product||'',country:d.country||'',item:d.item||'',squad:d.squad||'',campStatus:d.campStatus||'',inAmt:0,outAmt:0,gp:0};
+                  cg[k].inAmt+=(d.inAmt||0); cg[k].outAmt+=(d.outAmt||0); cg[k].gp+=(d.gp||0);
                   if(d.country) cg[k].country=d.country;
                   if(d.item) cg[k].item=d.item;
                   if(d.squad) cg[k].squad=d.squad;
@@ -2882,25 +2892,43 @@ function render() {
                   '</tr>';
                 let detailRow='';
                 if(showDetail){
-                  const subRows=campRows.map(d=>
-                    '<tr style="border-top:1px solid #1e293b55">'+
-                    '<td style="padding:5px 8px 5px 20px;color:#94a3b8;font-size:11px;white-space:nowrap">'+d.brand+'</td>'+
-                    '<td style="padding:5px 6px;color:#64748b;font-size:11px;font-weight:500">'+d.country+'</td>'+
-                    '<td style="padding:5px 6px;color:#94a3b8;font-size:11px">'+d.item+'</td>'+
-                    '<td style="padding:5px 6px;color:#64748b;font-size:11px">'+d.product+'</td>'+
-                    '<td style="padding:5px 6px;color:#94a3b8;font-size:11px">'+d.squad+'</td>'+
-                    '</tr>'
-                  ).join('');
+                  const subRows=campRows.map((d,di)=>{
+                    const dgp=d.gp; const dmr=d.inAmt>0?(dgp/d.inAmt*100):0;
+                    const dmc=dmr>=30?'#34d399':dmr>=15?'#fbbf24':'#f87171';
+                    const rowBg=di%2===0?'background:#060f1e':'background:#04090f';
+                    return '<tr style="border-top:1px solid #0d1b2e;'+rowBg+'">'+
+                      '<td style="padding:6px 8px 6px 20px;color:#93c5fd;font-size:11px;white-space:nowrap;font-weight:500">'+d.brand+'</td>'+
+                      '<td style="padding:6px 6px;color:#e2e8f0;font-size:11px">'+d.item+'</td>'+
+                      '<td style="padding:6px 6px;color:#64748b;font-size:10px;font-weight:600;text-align:center">'+d.country+'</td>'+
+                      '<td style="padding:6px 6px;color:#94a3b8;font-size:10px">'+d.product+'</td>'+
+                      '<td style="padding:6px 6px;color:#64748b;font-size:10px">'+d.squad+'</td>'+
+                      '<td style="padding:6px 6px;text-align:right;color:#38bdf8;font-size:11px">'+fmtW(d.inAmt)+'</td>'+
+                      '<td style="padding:6px 6px;text-align:right;color:#fb7185;font-size:11px">'+fmtW(d.outAmt)+'</td>'+
+                      '<td style="padding:6px 6px;text-align:right;color:'+(dgp>=0?'#f1f5f9':'#f87171')+';font-size:11px;font-weight:600">'+fmtW(dgp)+'</td>'+
+                      '<td style="padding:6px 6px;text-align:right;color:'+dmc+';font-size:11px;font-weight:600">'+dmr.toFixed(1)+'%</td>'+
+                      '<td style="padding:6px 8px;text-align:center">'+stBadge2(d.campStatus)+'</td>'+
+                      '</tr>';
+                  }).join('');
                   detailRow='<tr id="port-detail-'+eid+'" style="display:none">'+
-                    '<td colspan="9" style="padding:0;background:#070e1a;border-left:3px solid #334155">'+
+                    '<td colspan="9" style="padding:0;background:#040c18;border-left:4px solid #0ea5e9;box-shadow:inset 0 2px 8px #00000066">'+
                     '<table style="width:100%;border-collapse:collapse;table-layout:fixed">'+
-                    '<colgroup><col style="width:22%"><col style="width:8%"><col style="width:28%"><col style="width:20%"><col style="width:22%"></colgroup>'+
-                    '<thead><tr style="background:#0d1929;border-bottom:1px solid #1e293b">'+
-                    '<th style="padding:4px 8px 4px 20px;text-align:left;color:#475569;font-size:10px">브랜드</th>'+
-                    '<th style="padding:4px 6px;text-align:left;color:#475569;font-size:10px">국가</th>'+
-                    '<th style="padding:4px 6px;text-align:left;color:#475569;font-size:10px">제품명</th>'+
-                    '<th style="padding:4px 6px;text-align:left;color:#475569;font-size:10px">상품</th>'+
-                    '<th style="padding:4px 6px;text-align:left;color:#475569;font-size:10px">담당</th>'+
+                    '<colgroup>'+
+                      '<col style="width:12%"><col style="width:16%"><col style="width:6%">'+
+                      '<col style="width:11%"><col style="width:9%">'+
+                      '<col style="width:12%"><col style="width:12%"><col style="width:12%">'+
+                      '<col style="width:8%"><col style="width:12%">'+
+                    '</colgroup>'+
+                    '<thead><tr style="background:#071525;border-bottom:1px solid #0f2236">'+
+                    '<th style="padding:5px 8px 5px 20px;text-align:left;color:#38bdf8;font-size:10px;font-weight:600;letter-spacing:.4px">브랜드</th>'+
+                    '<th style="padding:5px 6px;text-align:left;color:#38bdf8;font-size:10px;font-weight:600;letter-spacing:.4px">제품명</th>'+
+                    '<th style="padding:5px 6px;text-align:center;color:#38bdf8;font-size:10px;font-weight:600;letter-spacing:.4px">국가</th>'+
+                    '<th style="padding:5px 6px;text-align:left;color:#38bdf8;font-size:10px;font-weight:600;letter-spacing:.4px">상품</th>'+
+                    '<th style="padding:5px 6px;text-align:left;color:#38bdf8;font-size:10px;font-weight:600;letter-spacing:.4px">담당</th>'+
+                    '<th style="padding:5px 6px;text-align:right;color:#38bdf8;font-size:10px;font-weight:600;letter-spacing:.4px">매출</th>'+
+                    '<th style="padding:5px 6px;text-align:right;color:#38bdf8;font-size:10px;font-weight:600;letter-spacing:.4px">비용</th>'+
+                    '<th style="padding:5px 6px;text-align:right;color:#38bdf8;font-size:10px;font-weight:600;letter-spacing:.4px">매출총이익</th>'+
+                    '<th style="padding:5px 6px;text-align:right;color:#38bdf8;font-size:10px;font-weight:600;letter-spacing:.4px">이익률</th>'+
+                    '<th style="padding:5px 8px;text-align:center;color:#38bdf8;font-size:10px;font-weight:600;letter-spacing:.4px">운영상태</th>'+
                     '</tr></thead>'+
                     '<tbody>'+subRows+'</tbody>'+
                     '</table></td></tr>';
