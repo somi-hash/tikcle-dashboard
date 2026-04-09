@@ -2982,8 +2982,13 @@ function render() {
         // hm은 이미 currentYear로 필터된 rows에서 만들어짐 → GP는 이미 필터됨
         // TAX_DATA는 별도로 필터해야 함
         const yearStr = currentYear; // '25' | '26' | 'all'
+        // ⚠️ 실제 세발 발행된 건만 (O열 '세발' 컬럼 = invoiceInfo 값이 있는 행만) 포함
         const taxRows = (TAX_DATA && TAX_DATA.length)
-          ? TAX_DATA.filter(d => yearStr === 'all' ? true : (String(d.year||'').replace(/['"]/g,'') === yearStr || String(d.ym||'').startsWith(yearStr+'년')))
+          ? TAX_DATA.filter(d => {
+              if (!d.invoiceInfo) return false; // 세발 미발행 제외
+              if (yearStr === 'all') return true;
+              return String(d.year||'').replace(/['"]/g,'') === yearStr || String(d.ym||'').startsWith(yearStr+'년');
+            })
           : [];
         // ── 통합 컬럼축 (GP 월 ∪ 세발 월) ─────────────────────────
         const parseYm = s => {
