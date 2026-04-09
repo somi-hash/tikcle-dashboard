@@ -9,201 +9,6 @@
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
  
-/* ── 고객사 행 클릭 커서 ── */
-.portfolio-row { cursor: pointer; transition: background 0.15s; }
-.portfolio-row:hover { background: #1e293b !important; }
- 
-/* ── 코멘트 슬라이드 패널 ── */
-#comment-panel {
-  position: fixed;
-  top: 0; right: -480px;
-  width: 460px; height: 100vh;
-  background: #0f172a;
-  border-left: 1px solid #334155;
-  box-shadow: -8px 0 32px rgba(0,0,0,0.5);
-  z-index: 9999;
-  display: flex; flex-direction: column;
-  transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  font-family: 'Inter', sans-serif;
-}
-#comment-panel.open { right: 0; }
- 
-/* ── 패널 헤더 ── */
-#comment-panel-header {
-  padding: 20px 24px 16px;
-  border-bottom: 1px solid #1e293b;
-  display: flex; align-items: center; justify-content: space-between;
-  flex-shrink: 0;
-}
-#comment-panel-title {
-  font-size: 15px; font-weight: 700; color: #f8fafc;
-}
-#comment-panel-sub {
-  font-size: 12px; color: #64748b; margin-top: 3px;
-}
-#comment-panel-close {
-  background: none; border: none;
-  color: #64748b; font-size: 20px;
-  cursor: pointer; padding: 4px 8px;
-  border-radius: 6px; line-height: 1;
-  transition: all 0.15s;
-}
-#comment-panel-close:hover { background: #1e293b; color: #f8fafc; }
- 
-/* ── 댓글 목록 영역 ── */
-#comment-list {
-  flex: 1; overflow-y: auto;
-  padding: 16px 24px;
-  display: flex; flex-direction: column; gap: 12px;
-}
-#comment-list::-webkit-scrollbar { width: 4px; }
-#comment-list::-webkit-scrollbar-track { background: transparent; }
-#comment-list::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
- 
-/* ── 개별 댓글 카드 ── */
-.comment-card {
-  background: #1e293b;
-  border-radius: 10px;
-  padding: 14px 16px;
-  border-left: 3px solid #4f46e5;
-  position: relative;
-}
-.comment-card[data-category="이슈"]  { border-left-color: #ef4444; }
-.comment-card[data-category="업셀"]  { border-left-color: #22c55e; }
-.comment-card[data-category="미팅"]  { border-left-color: #3b82f6; }
-.comment-card[data-category="기타"]  { border-left-color: #94a3b8; }
-
-.comment-card-meta {
-  display: flex; align-items: center;
-  gap: 8px; margin-bottom: 8px; flex-wrap: wrap;
-}
-.comment-category-badge {
-  font-size: 10px; font-weight: 700;
-  padding: 2px 8px; border-radius: 20px;
-  text-transform: uppercase; letter-spacing: 0.5px;
-}
-.badge-이슈 { background: rgba(239,68,68,0.15); color: #ef4444; }
-.badge-업셀 { background: rgba(34,197,94,0.15); color: #22c55e; }
-.badge-미팅 { background: rgba(59,130,246,0.15); color: #3b82f6; }
-.badge-기타 { background: rgba(148,163,184,0.15); color: #94a3b8; }
-
-.comment-author { font-size: 12px; font-weight: 600; color: #c7d2fe; }
-.comment-date   { font-size: 11px; color: #475569; margin-left: auto; }
-.comment-text   { font-size: 13px; color: #cbd5e1; line-height: 1.6; }
-
-/* ── 수정/삭제 버튼 ── */
-.comment-actions {
-  display: none;
-  position: absolute; top: 10px; right: 10px;
-  gap: 4px;
-}
-.comment-card:hover .comment-actions { display: flex; }
-.comment-action-btn {
-  background: #0f172a; border: 1px solid #334155;
-  border-radius: 6px; padding: 3px 8px;
-  font-size: 11px; cursor: pointer;
-  transition: all 0.15s; color: #94a3b8;
-}
-.comment-action-btn:hover { background: #1e293b; color: #f8fafc; border-color: #475569; }
-.comment-action-btn.del:hover { color: #f87171; border-color: #ef4444; }
-
-/* ── 인라인 수정 폼 ── */
-.comment-edit-area {
-  margin-top: 8px; display: flex; flex-direction: column; gap: 6px;
-}
-.comment-edit-select { padding: 6px 10px; border-radius: 6px; font-size: 12px;
-  background: #0f172a; border: 1px solid #334155; color: #f8fafc;
-  font-family: 'Inter', sans-serif; outline: none; width: fit-content; }
-.comment-edit-textarea { padding: 8px 10px; border-radius: 6px; font-size: 13px;
-  background: #0f172a; border: 1px solid #6366f1; color: #f8fafc;
-  font-family: 'Inter', sans-serif; outline: none; resize: none;
-  line-height: 1.5; min-height: 60px; width: 100%; box-sizing: border-box; }
-.comment-edit-row { display: flex; gap: 6px; justify-content: flex-end; }
-.comment-edit-save { background: #6366f1; color: #fff; border: none;
-  border-radius: 6px; padding: 5px 14px; font-size: 12px; font-weight: 600;
-  cursor: pointer; }
-.comment-edit-cancel { background: #1e293b; color: #94a3b8; border: 1px solid #334155;
-  border-radius: 6px; padding: 5px 14px; font-size: 12px; cursor: pointer; }
- 
-/* ── 빈 상태 ── */
-.comment-empty {
-  text-align: center; padding: 48px 16px;
-  color: #475569; font-size: 13px;
-}
-.comment-empty .icon { font-size: 32px; margin-bottom: 8px; }
- 
-/* ── 로딩 ── */
-.comment-loading {
-  text-align: center; padding: 32px;
-  color: #64748b; font-size: 13px;
-}
- 
-/* ── 댓글 작성 폼 ── */
-#comment-form-area {
-  padding: 16px 24px 20px;
-  border-top: 1px solid #1e293b;
-  flex-shrink: 0;
-  background: #0f172a;
-}
-#comment-form-area h4 {
-  font-size: 12px; font-weight: 600;
-  color: #64748b; margin: 0 0 12px;
-  text-transform: uppercase; letter-spacing: 0.5px;
-}
-.comment-form-row {
-  display: flex; gap: 8px; margin-bottom: 10px;
-}
-.comment-input, .comment-select, .comment-textarea {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  color: #f8fafc;
-  font-size: 13px;
-  font-family: 'Inter', sans-serif;
-  outline: none;
-  transition: border-color 0.15s;
-}
-.comment-input   { padding: 9px 12px; width: 100%; }
-.comment-select  { padding: 9px 12px; flex: 1; cursor: pointer; }
-.comment-textarea {
-  padding: 10px 12px; width: 100%;
-  resize: none; height: 72px;
-  line-height: 1.5;
-}
-.comment-input:focus,
-.comment-select:focus,
-.comment-textarea:focus { border-color: #6366f1; }
- 
-.comment-submit-btn {
-  width: 100%; padding: 10px;
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  border: none; border-radius: 8px;
-  color: #fff; font-size: 13px; font-weight: 600;
-  cursor: pointer; transition: all 0.2s;
-  margin-top: 4px;
-}
-.comment-submit-btn:hover  { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,0.4); }
-.comment-submit-btn:active { transform: translateY(0); }
-.comment-submit-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
- 
-/* ── 오버레이 ── */
-#comment-overlay {
-  display: none;
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.4);
-  z-index: 9998;
-}
-#comment-overlay.show { display: block; }
- 
-/* ── 행 댓글 카운트 뱃지 ── */
-.row-comment-badge {
-  display: inline-flex; align-items: center; gap: 3px;
-  background: rgba(99,102,241,0.15);
-  color: #818cf8;
-  font-size: 10px; font-weight: 600;
-  padding: 2px 7px; border-radius: 10px;
-  margin-left: 6px; vertical-align: middle;
-}
   * { margin:0; padding:0; box-sizing:border-box; }
   body { background:#0f172a; color:#e2e8f0; font-family:'Inter',sans-serif; padding:24px 32px; min-height:100vh; }
   /* ─── Password Lock Screen ─── */
@@ -417,7 +222,7 @@ function unlockDashboard() {
     document.getElementById('lockScreen').classList.add('fade-out');
     document.getElementById('app').style.display = '';
     setTimeout(() => { document.getElementById('lockScreen').remove(); }, 500);
-    if (typeof loadData === 'function') loadData(true).then(()=>{if(typeof updateDebugPanel==='function')updateDebugPanel();if(typeof updateJsonLinks==='function')updateJsonLinks();if(typeof preloadAllComments==='function')preloadAllComments();});
+    if (typeof loadData === 'function') loadData(true).then(()=>{if(typeof updateDebugPanel==='function')updateDebugPanel();if(typeof updateJsonLinks==='function')updateJsonLinks();});
   } else {
     document.getElementById('pwInput').classList.add('shake');
     document.getElementById('pwError').textContent = '비밀번호가 올바르지 않습니다';
@@ -465,6 +270,18 @@ const PROD_COLORS = [
   '#65a30d','#ea580c','#7c3aed','#0891b2','#be185d'
 ];
 function getProdColor(i) { return PROD_COLORS[i % PROD_COLORS.length]; }
+// ─── PRODUCT NORMALIZATION ────────────────────────────────────────
+function normalizeProduct(name) {
+  if (!name) return '기타';
+  const n = name.trim();
+  if (n.includes('무가') || n.includes('아마존 중동') || n.includes('POC')) return '대량무가';
+  if (n.includes('유가') || n.includes('2차 활용')) return '유가';
+  if (n.includes('USP') || n.includes('1M 패키지')) return 'USP 테스트';
+  if (n.includes('물류대행')) return '물류대행';
+  if (n.includes('소재수급')) return '소재수급';
+  return '기타';
+}
+
 function getProducts(client, brand, squad, year, month) {
   const key = client+'|'+brand+'|'+squad+'|'+String(year).replace(/['"]/g,'').trim()+'|'+parseInt(month);
   return PRODUCT_MAP[key] || [];
@@ -974,11 +791,12 @@ function parseGvizResponse(response, forceType) {
         aggMap[aggKey].outAmt += outAmt;
         aggMap[aggKey].gp += gp;
         if (product) {
+          const normProd = normalizeProduct(product);
           const pKey = client+'|'+brand+'|'+squad+'|'+year+'|'+month;
           if (!productMap[pKey]) productMap[pKey] = {};
-          if (!productMap[pKey][product]) productMap[pKey][product] = {gp:0, inAmt:0};
-          productMap[pKey][product].gp += gp;
-          productMap[pKey][product].inAmt += inAmt;
+          if (!productMap[pKey][normProd]) productMap[pKey][normProd] = {gp:0, inAmt:0};
+          productMap[pKey][normProd].gp += gp;
+          productMap[pKey][normProd].inAmt += inAmt;
         }
         // ─── Campaign timeline data (cols 2,26~35) ───
         const campName = String(val(1)).trim();
@@ -1243,11 +1061,12 @@ function parseCashflowForProducts(response) {
       if (!client || !product || isNaN(month)) continue;
       const gp = inAmt - outAmt;
       // 매칭 키: 고객사|브랜드|담당스쿼드|연도|월 (통합정산 C~G ↔ cashflow D,E,H,N,O)
+      const normProd = normalizeProduct(product);
       const pKey = client+'|'+brand+'|'+squad+'|'+year+'|'+month;
       if (!productMap[pKey]) productMap[pKey] = {};
-      if (!productMap[pKey][product]) productMap[pKey][product] = {gp:0, inAmt:0};
-      productMap[pKey][product].gp += gp;
-      productMap[pKey][product].inAmt += inAmt;
+      if (!productMap[pKey][normProd]) productMap[pKey][normProd] = {gp:0, inAmt:0};
+      productMap[pKey][normProd].gp += gp;
+      productMap[pKey][normProd].inAmt += inAmt;
       rowCount++;
       // Campaign timeline extraction
       const campName = String(val(1)).trim();
@@ -3061,7 +2880,7 @@ function render() {
     }
   });
   // 새로고침 후에도 뱃지 즉시 복원
-  restoreBadgeCounts();
+  
 }
 function setYear(y) { currentYear=y; selectedMonthIdx=null; render(); }
 function setMonth(idx) { selectedMonthIdx=parseInt(idx); render(); }
@@ -3205,312 +3024,7 @@ if (sessionStorage.getItem('tkcle_auth') === '1') {
   loadData(true).then(()=>{updateDebugPanel();updateJsonLinks();});
 }
 </script>
-  <!-- 배경 오버레이 -->
-<div id="comment-overlay" onclick="closeCommentPanel()"></div>
- 
-<!-- 코멘트 슬라이드 패널 -->
-<div id="comment-panel">
- 
-  <!-- 헤더 -->
-  <div id="comment-panel-header">
-    <div>
-      <div id="comment-panel-title">💬 특이사항</div>
-      <div id="comment-panel-sub">고객사를 선택하세요</div>
-    </div>
-    <button id="comment-panel-close" onclick="closeCommentPanel()">✕</button>
-  </div>
- 
-  <!-- 댓글 목록 -->
-  <div id="comment-list">
-    <div class="comment-empty">
-      <div class="icon">💬</div>
-      고객사를 클릭하면<br>특이사항을 확인할 수 있어요
-    </div>
-  </div>
- 
-  <!-- 댓글 작성 폼 -->
-  <div id="comment-form-area">
-    <h4>새 특이사항 추가</h4>
-    <div class="comment-form-row">
-      <input  id="cf-author"   class="comment-input"   placeholder="작성자 이름" style="flex:1" />
-      <select id="cf-category" class="comment-select">
-        <option value="이슈">🔴 이슈</option>
-        <option value="업셀">🟢 업셀</option>
-        <option value="미팅">🔵 미팅</option>
-        <option value="기타">⚪ 기타</option>
-      </select>
-    </div>
-    <textarea id="cf-comment" class="comment-textarea"
-              placeholder="특이사항을 입력하세요 (예: CSM 미드+ 업셀 논의 중, 5월 결정 예정)"></textarea>
-    <button class="comment-submit-btn" onclick="submitComment()">저장하기</button>
-  </div>
- 
-</div>
-  <script id="comment-script">
- 
-// ── ★ 여기에 배포된 Apps Script URL을 입력하세요 ──────────
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyd55TzJ2wTBVeFanS5i0IRiWLnvW490A_6P4bpDynItFzQ0P9cU6hBGTnnzHc1n7Az/exec';
-// ──────────────────────────────────────────────────────────
- 
-let currentCustomer = '';
-let commentCache = {};   // { 고객사명: [comments] }
-
-// ── 댓글 카운트 localStorage 저장/복원 ─────────────────────
-const BADGE_CACHE_KEY = 'tc_comment_counts';
-function saveBadgeCounts() {
-  const counts = {};
-  Object.entries(commentCache).forEach(([k, v]) => { counts[k] = v.length; });
-  try { localStorage.setItem(BADGE_CACHE_KEY, JSON.stringify(counts)); } catch(e) {}
-}
-function restoreBadgeCounts() {
-  try {
-    const raw = localStorage.getItem(BADGE_CACHE_KEY);
-    if (!raw) return;
-    const counts = JSON.parse(raw);
-    Object.entries(counts).forEach(([name, cnt]) => {
-      if (cnt > 0) updateRowBadge(name, cnt);
-    });
-  } catch(e) {}
-}
-
-// ── 전체 댓글 백그라운드 프리로드 ──────────────────────────
-async function preloadAllComments() {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
-    const res = await fetch(APPS_SCRIPT_URL, { redirect: 'follow', signal: controller.signal });
-    clearTimeout(timer);
-    const all = await res.json();
-    if (!Array.isArray(all)) return;
-    // 고객사별로 분류
-    const grouped = {};
-    all.forEach(c => {
-      if (!c.customer) return;
-      if (!grouped[c.customer]) grouped[c.customer] = [];
-      grouped[c.customer].push(c);
-    });
-    commentCache = grouped;
-    saveBadgeCounts();
-    // 뱃지 전체 업데이트
-    Object.entries(grouped).forEach(([name, arr]) => updateRowBadge(name, arr.length));
-  } catch(e) { /* 백그라운드 실패 조용히 무시 */ }
-}
- 
-// ── 패널 열기 ───────────────────────────────────────────────
-function openCommentPanel(customerName, brandName) {
-  currentCustomer = customerName;
-  document.getElementById('comment-panel-title').textContent = '💬 ' + customerName;
-  document.getElementById('comment-panel-sub').textContent = brandName || '';
-  document.getElementById('comment-panel').classList.add('open');
-  document.getElementById('comment-overlay').classList.add('show');
-  // 캐시 있으면 즉시 표시, 없으면 로딩 표시 후 전체 프리로드 트리거
-  if (commentCache[customerName]) {
-    renderComments(commentCache[customerName]);
-  } else if (Object.keys(commentCache).length > 0) {
-    // 프리로드 완료됐지만 이 고객사 댓글 없음 → 빈 상태
-    renderComments([]);
-  } else {
-    document.getElementById('comment-list').innerHTML = '<div class="comment-loading">불러오는 중...</div>';
-    preloadAllComments();
-  }
-}
-
-// ── 패널 닫기 ───────────────────────────────────────────────
-function closeCommentPanel() {
-  document.getElementById('comment-panel').classList.remove('open');
-  document.getElementById('comment-overlay').classList.remove('show');
-}
-
-// ── 댓글 렌더링 (수정/삭제 버튼 포함) ──────────────────────
-function renderComments(comments) {
-  const listEl = document.getElementById('comment-list');
-  if (!comments || comments.length === 0) {
-    listEl.innerHTML = '<div class="comment-empty"><div class="icon">✏️</div>아직 특이사항이 없어요<br>아래에서 첫 번째 메모를 추가해보세요</div>';
-    return;
-  }
-  listEl.innerHTML = comments.map(c => `
-    <div class="comment-card" data-category="${esc(c.category)}" data-id="${esc(c.id)}">
-      <div class="comment-actions">
-        <button class="comment-action-btn" onclick="startEditComment('${esc(c.id)}')">✏️ 수정</button>
-        <button class="comment-action-btn del" onclick="deleteComment('${esc(c.id)}')">🗑️ 삭제</button>
-      </div>
-      <div class="comment-card-meta">
-        <span class="comment-category-badge badge-${esc(c.category)}">${esc(c.category)}</span>
-        <span class="comment-author">${esc(c.author)}</span>
-        <span class="comment-date">${esc(c.date)}</span>
-      </div>
-      <div class="comment-text" id="ct-${esc(c.id)}">${esc(c.comment).replace(/\n/g, '<br>')}</div>
-    </div>
-  `).join('');
-}
-
-// ── 수정 시작 (인라인 폼) ───────────────────────────────────
-function startEditComment(id) {
-  const card = document.querySelector(`.comment-card[data-id="${id}"]`);
-  if (!card) return;
-  const textEl = card.querySelector('.comment-text');
-  const catBadge = card.querySelector('.comment-category-badge');
-  const curText = textEl ? textEl.innerText : '';
-  const curCat  = card.dataset.category || '기타';
-  textEl.style.display = 'none';
-  card.querySelector('.comment-actions').style.display = 'none';
-  const editArea = document.createElement('div');
-  editArea.className = 'comment-edit-area';
-  editArea.innerHTML = `
-    <select class="comment-edit-select" id="edit-cat-${id}">
-      <option value="이슈" ${curCat==='이슈'?'selected':''}>이슈</option>
-      <option value="업셀" ${curCat==='업셀'?'selected':''}>업셀</option>
-      <option value="미팅" ${curCat==='미팅'?'selected':''}>미팅</option>
-      <option value="기타" ${curCat==='기타'?'selected':''}>기타</option>
-    </select>
-    <textarea class="comment-edit-textarea" id="edit-txt-${id}">${curText}</textarea>
-    <div class="comment-edit-row">
-      <button class="comment-edit-cancel" onclick="cancelEditComment('${id}')">취소</button>
-      <button class="comment-edit-save" onclick="saveEditComment('${id}')">저장</button>
-    </div>`;
-  card.appendChild(editArea);
-}
-
-function cancelEditComment(id) {
-  const card = document.querySelector(`.comment-card[data-id="${id}"]`);
-  if (!card) return;
-  card.querySelector('.comment-text').style.display = '';
-  card.querySelector('.comment-actions').style.display = '';
-  const ea = card.querySelector('.comment-edit-area');
-  if (ea) ea.remove();
-}
-
-async function saveEditComment(id) {
-  const newText = document.getElementById('edit-txt-' + id)?.value.trim();
-  const newCat  = document.getElementById('edit-cat-' + id)?.value;
-  if (!newText) { alert('내용을 입력해주세요'); return; }
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
-    const res = await fetch(APPS_SCRIPT_URL, {
-      method: 'POST', redirect: 'follow', signal: controller.signal,
-      body: JSON.stringify({ action: 'update', id, comment: newText, category: newCat })
-    });
-    clearTimeout(timer);
-    const result = await res.json();
-    if (result.success) {
-      // 캐시 업데이트
-      if (commentCache[currentCustomer]) {
-        const c = commentCache[currentCustomer].find(c => c.id === id);
-        if (c) { c.comment = newText; c.category = newCat; }
-      }
-      renderComments(commentCache[currentCustomer] || []);
-      saveBadgeCounts();
-    } else { alert('수정 실패: ' + (result.error || '오류')); }
-  } catch (err) { alert('수정 실패: ' + err.message); }
-}
-
-// ── 댓글 삭제 ───────────────────────────────────────────────
-async function deleteComment(id) {
-  if (!confirm('이 댓글을 삭제할까요?')) return;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
-    const res = await fetch(APPS_SCRIPT_URL + '?action=delete&id=' + encodeURIComponent(id),
-      { redirect: 'follow', signal: controller.signal });
-    clearTimeout(timer);
-    const result = await res.json();
-    if (result.success) {
-      // 캐시에서 제거
-      if (commentCache[currentCustomer]) {
-        commentCache[currentCustomer] = commentCache[currentCustomer].filter(c => c.id !== id);
-      }
-      renderComments(commentCache[currentCustomer] || []);
-      updateRowBadge(currentCustomer, (commentCache[currentCustomer] || []).length);
-      saveBadgeCounts();
-    } else { alert('삭제 실패: ' + (result.error || '오류')); }
-  } catch (err) { alert('삭제 실패: ' + err.message); }
-}
-
-// ── 댓글 저장 ───────────────────────────────────────────────
-async function submitComment() {
-  const author   = document.getElementById('cf-author').value.trim();
-  const category = document.getElementById('cf-category').value;
-  const comment  = document.getElementById('cf-comment').value.trim();
-  if (!author)  { alert('작성자 이름을 입력해주세요'); return; }
-  if (!comment) { alert('내용을 입력해주세요'); return; }
-  if (!currentCustomer) { alert('고객사를 선택해주세요'); return; }
-  const btn = document.querySelector('.comment-submit-btn');
-  btn.disabled = true; btn.textContent = '저장 중...';
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
-    const res = await fetch(APPS_SCRIPT_URL, {
-      method: 'POST', redirect: 'follow', signal: controller.signal,
-      body: JSON.stringify({ customer: currentCustomer, category, comment, author })
-    });
-    clearTimeout(timer);
-    const result = await res.json();
-    if (result.success) {
-      document.getElementById('cf-comment').value = '';
-      localStorage.setItem('tc_last_author', author);
-      // 새 댓글을 캐시 맨 앞에 추가 (API 재호출 없이 즉시 반영)
-      const newComment = { id: result.id, customer: currentCustomer, category,
-        comment, author, date: result.date, timestamp: new Date().toISOString() };
-      if (!commentCache[currentCustomer]) commentCache[currentCustomer] = [];
-      commentCache[currentCustomer].unshift(newComment);
-      renderComments(commentCache[currentCustomer]);
-      updateRowBadge(currentCustomer, commentCache[currentCustomer].length);
-      saveBadgeCounts();
-    } else { alert('저장 실패: ' + (result.error || '알 수 없는 오류')); }
-  } catch (err) { alert('저장 실패: ' + err.message); }
-  finally { btn.disabled = false; btn.textContent = '저장하기'; }
-}
-
-// ── 행에 댓글 수 뱃지 업데이트 ─────────────────────────────
-function updateRowBadge(customerName, count) {
-  document.querySelectorAll('.portfolio-row').forEach(row => {
-    if (row.dataset.customer === customerName) {
-      let badge = row.querySelector('.row-comment-badge');
-      if (count > 0) {
-        if (!badge) {
-          const firstCell = row.querySelector('td');
-          if (firstCell) {
-            badge = document.createElement('span');
-            badge.className = 'row-comment-badge';
-            firstCell.appendChild(badge);
-          }
-        }
-        if (badge) badge.textContent = '💬 ' + count;
-      } else if (badge) {
-        badge.remove();
-      }
-    }
-  });
-}
- 
- 
-// ── XSS 방지 이스케이프 ─────────────────────────────────────
-function esc(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
- 
-// ── 마지막 작성자 이름 자동 입력 ───────────────────────────
-(function() {
-  const lastAuthor = localStorage.getItem('tc_last_author');
-  if (lastAuthor) {
-    const authorInput = document.getElementById('cf-author');
-    if (authorInput) authorInput.value = lastAuthor;
-  }
-})();
- 
-// ── ESC 키로 패널 닫기 ──────────────────────────────────────
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeCommentPanel();
-});
- 
-
-</script>
+  
  
 </body>
 </html>
