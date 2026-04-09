@@ -722,7 +722,8 @@ function parseSettlementResponse(response) {
         const s = String(v).trim();
         if (s.match(/^Date\(/)) {
           const dm = s.match(/Date\((\d+),(\d+),(\d+)\)/);
-          if(dm) return new Date(+dm[1],+dm[2],+dm[3]).toISOString().slice(0,10);
+          // toISOString()은 UTC 변환으로 KST에서 하루 빠짐 → 직접 조합
+          if(dm) return dm[1]+'-'+String(+dm[2]+1).padStart(2,'0')+'-'+String(+dm[3]).padStart(2,'0');
         }
         return s.length >= 10 ? s.slice(0,10) : s;
       };
@@ -830,7 +831,7 @@ function parseGvizResponse(response, forceType) {
         const campName = String(val(1)).trim();
         const country = String(val(7)).trim();  // H열: 국가
         const item    = String(val(8)).trim();  // I열: 제품
-        const dateVal = (idx) => { const v = val(idx); if (!v) return null; const s = String(v).trim(); if (!s || s === '—') return null; if (s.match(/^Date\(/)) { const dm = s.match(/Date\((\d+),(\d+),(\d+)\)/); if(dm) return new Date(+dm[1],+dm[2],+dm[3]).toISOString().slice(0,10); } return s.length >= 10 ? s.slice(0,10) : null; };
+        const dateVal = (idx) => { const v = val(idx); if (!v) return null; const s = String(v).trim(); if (!s || s === '—') return null; if (s.match(/^Date\(/)) { const dm = s.match(/Date\((\d+),(\d+),(\d+)\)/); if(dm) return dm[1]+'-'+String(+dm[2]+1).padStart(2,'0')+'-'+String(+dm[3]).padStart(2,'0'); } return s.length >= 10 ? s.slice(0,10) : null; };
         const numVal = (idx) => { const v = val(idx); return v ? (parseInt(v) || 0) : 0; };
         const discStart = dateVal(26), discEnd = dateVal(27), shipStart = dateVal(28);
         const recStart = dateVal(29), recEnd = dateVal(30), contractEnd = dateVal(31);
@@ -926,6 +927,12 @@ function loadJSONP(url, timeoutMs) {
     };
     document.body.appendChild(script);
   });
+}
+// ─── 로컬 날짜 문자열 헬퍼 (toISOString은 UTC 변환으로 KST에서 하루 빠지는 버그 방지) ──
+function localDateStr(d) {
+  return d.getFullYear() + '-' +
+    String(d.getMonth()+1).padStart(2,'0') + '-' +
+    String(d.getDate()).padStart(2,'0');
 }
 // ─── Google Sheets JSONP (gviz API) ──────────────────────────────
 function fetchViaJSONP(sheetId, gid) {
@@ -1150,7 +1157,7 @@ function parseCashflowForProducts(response) {
       rowCount++;
       // Campaign timeline extraction
       const campName = String(val(1)).trim();
-      const dateVal2 = (idx) => { const v = val(idx); if (!v) return null; const s = String(v).trim(); if (!s || s === '—') return null; if (s.match(/^Date\(/)) { const dm = s.match(/Date\((\d+),(\d+),(\d+)\)/); if(dm) return new Date(+dm[1],+dm[2],+dm[3]).toISOString().slice(0,10); } return s.length >= 10 ? s.slice(0,10) : null; };
+      const dateVal2 = (idx) => { const v = val(idx); if (!v) return null; const s = String(v).trim(); if (!s || s === '—') return null; if (s.match(/^Date\(/)) { const dm = s.match(/Date\((\d+),(\d+),(\d+)\)/); if(dm) return dm[1]+'-'+String(+dm[2]+1).padStart(2,'0')+'-'+String(+dm[3]).padStart(2,'0'); } return s.length >= 10 ? s.slice(0,10) : null; };
       const numVal2 = (idx) => { const v = val(idx); return v ? (parseInt(v) || 0) : 0; };
       if (campName) {
         const numColsCheck = numCols > 25;
@@ -2690,9 +2697,9 @@ function render() {
             const selYearFull = am ? 2000+parseInt(am.year) : new Date().getFullYear();
             const winStart = new Date(selYearFull, selMonth-1, 1); // N월 1일
             const winEnd = new Date(selYearFull, selMonth+2, 0); // N+2월 말일
-            const winStartStr = winStart.toISOString().slice(0,10);
-            const winEndStr = winEnd.toISOString().slice(0,10);
-            const today = new Date().toISOString().slice(0,10);
+            const winStartStr = localDateStr(winStart);
+            const winEndStr = localDateStr(winEnd);
+            const today = localDateStr(new Date());
             const phaseColors = {disc:'#818cf8', ship:'#22d3ee', rec:'#f59e0b', contract:'#64748b'};
             const phaseNames = {disc:'디스커버리', ship:'배송', rec:'회수', contract:'계약'};
             const minD = (a,b) => !a ? b : !b ? a : (a < b ? a : b);
@@ -2765,7 +2772,7 @@ function render() {
             const ganttDays = [];
             let dd = new Date(winStart);
             while (dd <= winEnd) {
-              ganttDays.push({ date:dd.toISOString().slice(0,10), day:dd.getDate(), month:dd.getMonth()+1, dow:dd.getDay() });
+              ganttDays.push({ date:localDateStr(dd), day:dd.getDate(), month:dd.getMonth()+1, dow:dd.getDay() });
               dd = new Date(dd.getTime()+86400000);
             }
             const totalDays = ganttDays.length;
@@ -2906,8 +2913,8 @@ function render() {
             });
             // ─── 해당 월 회수 마감 예정 캠페인 ───
             const selYM = String(selYearFull%100).padStart(2,'0')+'년 '+String(selMonth).padStart(2,'0')+'월';
-            const selMonthStart = new Date(selYearFull, selMonth-1, 1).toISOString().slice(0,10);
-            const selMonthEnd = new Date(selYearFull, selMonth, 0).toISOString().slice(0,10);
+            const selMonthStart = localDateStr(new Date(selYearFull, selMonth-1, 1));
+            const selMonthEnd = localDateStr(new Date(selYearFull, selMonth, 0));
             // Deduplicate campaigns by name, merge across months
             const campByName = {};
             CAMPAIGN_DATA.forEach(d => {
