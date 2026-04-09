@@ -2769,7 +2769,45 @@ function render() {
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
           <div>
             <h2 style="margin-bottom:2px">🏢 고객사 포트폴리오 현황</h2>
-            <p style="color:#64748b;font-size:12px">${am?.ym||''} · 기존 ${port.active.filter(c=>c.status==='C').length}개사 · 신규 ${port.active.filter(c=>c.status==='N').length}개사 · 복귀 ${port.active.filter(c=>c.status==='R').length}개사 · 이탈 ${port.ended.length}개사</p>
+            <p style="color:#64748b;font-size:12px;line-height:1.6">
+              ${am?.ym||''} &nbsp;·&nbsp;
+              총 <span style="color:#e2e8f0;font-weight:600">${port.active.length}개사</span>
+              <span style="color:#334155;margin:0 3px">|</span>
+              기존 <span style="color:#94a3b8">${port.active.filter(c=>c.status==='C').length}개사</span> ·
+              신규 <span style="color:#6ee7b7">${port.active.filter(c=>c.status==='N').length}개사</span> ·
+              복귀 <span style="color:#7dd3fc">${port.active.filter(c=>c.status==='R').length}개사</span> ·
+              이탈 <span style="color:#f87171">${port.ended.length}개사</span>
+            </p>
+            <p style="color:#475569;font-size:11px;margin-top:4px;line-height:1.6">
+              ${(()=>{
+                if(!CAMPAIGN_DATA||!am) return '';
+                const selYr2=String(am.year||'').replace(/^20/,'');
+                const selMo=parseInt(am.month||0);
+                if(!selYr2||!selMo) return '';
+                const seen=new Set();
+                const cnt={'운영 전':0,'운영 중':0,'마감':0,'홀딩':0};
+                CAMPAIGN_DATA.forEach(d=>{
+                  const dy=String(d.year||'').replace(/^20/,'');
+                  if(dy!==selYr2||parseInt(d.month)!==selMo) return;
+                  const k=d.campaign||((d.client||'')+'__'+(d.brand||'')+'__'+(d.product||'')+'__'+(d.country||''));
+                  if(seen.has(k)) return;
+                  seen.add(k);
+                  const s=String(d.campStatus||'').trim()
+                    .replace(/^운영\s*중[\s\S]*$/,'운영 중').replace(/^운영\s*전[\s\S]*$/,'운영 전')
+                    .replace(/^마감[\s\S]*$/,'마감').replace(/^홀딩[\s\S]*$/,'홀딩');
+                  if(cnt[s]!==undefined) cnt[s]++;
+                });
+                const total=seen.size;
+                if(!total) return '';
+                const parts=[
+                  cnt['운영 전']>0?'운영 전 <span style="color:#fbbf24">'+cnt['운영 전']+'개</span>':'',
+                  cnt['운영 중']>0?'운영 중 <span style="color:#4ade80">'+cnt['운영 중']+'개</span>':'',
+                  cnt['마감']>0?'마감 <span style="color:#64748b">'+cnt['마감']+'개</span>':'',
+                  cnt['홀딩']>0?'홀딩 <span style="color:#f87171">'+cnt['홀딩']+'개</span>':'',
+                ].filter(Boolean).join(' · ');
+                return '총 <span style="color:#cbd5e1;font-weight:600">'+total+'개 캠페인</span>'+(parts?' &nbsp;('+parts+')':'');
+              })()}
+            </p>
           </div>
           ${monthSelectHTML}
         </div>
