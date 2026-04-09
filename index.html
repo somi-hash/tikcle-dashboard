@@ -1973,11 +1973,11 @@ function renderWaterfall(canvas, waterfall) {
 // ─── Heatmap ─────────────────────────────────────────────────────
 let expandedClient = null;
 let inlineChart = null;
-function toggleHeatmapClient(clientName, months, gps) {
+function toggleHeatmapClient(clientName, months, gps, taxes) {
   if(expandedClient === clientName) { expandedClient = null; } else { expandedClient = clientName; }
-  renderHeatmapExpansion(clientName, months, gps);
+  renderHeatmapExpansion(clientName, months, gps, taxes);
 }
-function renderHeatmapExpansion(clientName, months, gps) {
+function renderHeatmapExpansion(clientName, months, gps, taxes) {
   const existing = document.getElementById('hm-expand');
   if(existing) existing.remove();
   if(inlineChart) { inlineChart.destroy(); inlineChart = null; }
@@ -1986,15 +1986,20 @@ function renderHeatmapExpansion(clientName, months, gps) {
   if(!row) return;
   const tr = document.createElement('tr');
   tr.id = 'hm-expand';
-  const colCount = months.length + 2;
-  tr.innerHTML = '<td colspan="'+colCount+'" style="padding:16px 12px;background:#0f172a"><div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><span style="font-weight:600;color:#f8fafc;font-size:14px">'+clientName+'</span><span style="color:#64748b;font-size:12px">월별 매출총이익 추이</span></div><div style="height:180px"><canvas id="hmInlineCanvas"></canvas></div></td>';
+  const colCount = months.length + 3;
+  tr.innerHTML = '<td colspan="'+colCount+'" style="padding:16px 12px;background:#0f172a"><div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><span style="font-weight:600;color:#f8fafc;font-size:14px">'+clientName+'</span><span style="color:#64748b;font-size:12px">월별 매출총이익 × 세발(VAT-) 추이</span></div><div style="height:220px"><canvas id="hmInlineCanvas"></canvas></div></td>';
   row.parentNode.insertBefore(tr, row.nextSibling);
+  const taxArr = Array.isArray(taxes) ? taxes : months.map(()=>0);
   requestAnimationFrame(()=>{
     const canvas = document.getElementById('hmInlineCanvas');
     if(!canvas) return;
     inlineChart = new Chart(canvas, {
-      type:'line', data: { labels:months, datasets:[{ label:'매출총이익', data:gps, borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,0.15)', fill:true, tension:0.3, pointRadius:5, pointBackgroundColor:gps.map(v=>v!==0?'#6366f1':'#475569'), borderWidth:2.5 }] },
-      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmtW(c.raw)}}}, scales:{y:{ticks:{callback:v=>fmt(v)}}} }
+      type:'line',
+      data: { labels: months, datasets: [
+        { label:'매출총이익(GP)', data: gps, borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,0.15)', fill:true, tension:0.3, pointRadius:4, pointBackgroundColor: gps.map(v=>v!==0?'#6366f1':'#475569'), borderWidth:2.5 },
+        { label:'세발(VAT-)', data: taxArr, borderColor:'#fbbf24', backgroundColor:'rgba(251,191,36,0.10)', fill:false, tension:0.3, pointRadius:4, pointBackgroundColor: taxArr.map(v=>v!==0?'#fbbf24':'#475569'), borderWidth:2.5, borderDash:[6,3] }
+      ]},
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:true,position:'top',labels:{color:'#cbd5e1',font:{size:11}}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmtW(c.raw)}}}, scales:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8',callback:v=>fmt(v)}}} }
     });
   });
 }
@@ -2968,6 +2973,13 @@ function render() {
     <!-- TAB: Heatmap (GP × 세발 통합 비교) -->
     <div class="tab-content ${currentTab==='heatmap'?'active':''}" id="tab-heatmap">
       ${(() => {
+        // ── 연도 필터 (상단 currentYear 사용) ─────────────────────
+        // hm은 이미 currentYear로 필터된 rows에서 만들어짐 → GP는 이미 필터됨
+        // TAX_DATA는 별도로 필터해야 함
+        const yearStr = currentYear; // '25' | '26' | 'all'
+        const taxRows = (TAX_DATA && TAX_DATA.length)
+          ? TAX_DATA.filter(d => yearStr === 'all' ? true : (String(d.year||'').replace(/['"]/g,'') === yearStr || String(d.ym||'').startsWith(yearStr+'년')))
+          : [];
         // ── 통합 컬럼축 (GP 월 ∪ 세발 월) ─────────────────────────
         const parseYm = s => {
           const m = String(s).match(/(\d{2,4})\D+(\d{1,2})/);
@@ -2975,7 +2987,7 @@ function render() {
           return [parseInt(m[1]), parseInt(m[2])];
         };
         const ymSet = new Set(hm.months);
-        if (TAX_DATA && TAX_DATA.length) TAX_DATA.forEach(d => { if (d.ym) ymSet.add(d.ym); });
+        taxRows.forEach(d => { if (d.ym) ymSet.add(d.ym); });
         const allMonths = [...ymSet].sort((a,b) => {
           const [ay,am] = parseYm(a), [by,bm] = parseYm(b);
           return ay === by ? am - bm : ay - by;
@@ -2985,15 +2997,13 @@ function render() {
         hm.clients.forEach(c => {
           c.monthGPs.forEach((v, i) => { gpMap[c.name+'||'+hm.months[i]] = v; });
         });
-        // ── 세발(VAT+) 데이터(client × ym) ─────────────────────────
+        // ── 세발(VAT-) 데이터(client × ym) ─────────────────────────
         const taxMap = {};
-        if (TAX_DATA && TAX_DATA.length) {
-          TAX_DATA.forEach(d => {
-            if (!d.client || !d.ym) return;
-            const k = d.client + '||' + d.ym;
-            taxMap[k] = (taxMap[k] || 0) + (d.taxAmtIn || 0);
-          });
-        }
+        taxRows.forEach(d => {
+          if (!d.client || !d.ym) return;
+          const k = d.client + '||' + d.ym;
+          taxMap[k] = (taxMap[k] || 0) + (d.taxAmtEx || 0);
+        });
         // ── 고객사 합집합 ─────────────────────────────────────────
         const clientSet = new Set();
         hm.clients.forEach(c => clientSet.add(c.name));
@@ -3001,36 +3011,23 @@ function render() {
         const combined = [...clientSet].map(cn => {
           const gpArr = allMonths.map(ym => gpMap[cn+'||'+ym] || 0);
           const taxArr = allMonths.map(ym => taxMap[cn+'||'+ym] || 0);
-          const gapArr = allMonths.map((_, i) => taxArr[i] - gpArr[i]); // 세발 - GP
           const gpTotal = gpArr.reduce((s,v)=>s+v, 0);
           const taxTotal = taxArr.reduce((s,v)=>s+v, 0);
-          const gapTotal = taxTotal - gpTotal;
-          return {name: cn, gpArr, taxArr, gapArr, gpTotal, taxTotal, gapTotal};
+          return {name: cn, gpArr, taxArr, gpTotal, taxTotal};
         }).filter(c => c.gpTotal !== 0 || c.taxTotal !== 0)
           .sort((a,b) => Math.max(b.gpTotal, b.taxTotal) - Math.max(a.gpTotal, a.taxTotal));
-        // 색상 스케일은 두 데이터 통합 max 사용
         const maxVal = Math.max(
           ...combined.map(c => Math.max(...c.gpArr, ...c.taxArr, 0)),
           1
         );
-        // 컬럼 합계
         const colGPTotals = allMonths.map((_, i) => combined.reduce((s,c) => s + c.gpArr[i], 0));
         const colTaxTotals = allMonths.map((_, i) => combined.reduce((s,c) => s + c.taxArr[i], 0));
-        const colGapTotals = allMonths.map((_, i) => colTaxTotals[i] - colGPTotals[i]);
         const grandGP = colGPTotals.reduce((s,v)=>s+v, 0);
         const grandTax = colTaxTotals.reduce((s,v)=>s+v, 0);
-        const grandGap = grandTax - grandGP;
-        // GAP 색상: 양수(세발>GP)=청록, 음수(GP>세발)=빨강
-        const gapColor = v => {
-          if (v === 0) return 'transparent';
-          const intensity = Math.min(Math.abs(v) / (maxVal * 0.6), 1);
-          return v > 0
-            ? 'rgba(34,197,94,'+(0.15 + intensity * 0.55)+')'
-            : 'rgba(239,68,68,'+(0.15 + intensity * 0.55)+')';
-        };
+        const yearLabelHm = yearStr==='25'?'2025년':yearStr==='26'?'2026년':'전체';
         return '<div class="card">' +
-          '<h2>🌡️ 고객사별 연간 매출총이익 × 세발 흐름</h2>' +
-          '<p class="sub">고객사별 3행 비교 · <span style="color:#a5b4fc">매출총이익(GP)</span> / <span style="color:#fbbf24">세발(VAT+)</span> / <span style="color:#86efac">GAP=세발-GP</span> · GAP 양수(초록)=세발이 더 큼, 음수(빨강)=GP가 더 큼 · 고객사명을 클릭하면 GP 추이 그래프</p>' +
+          '<h2>🌡️ 고객사별 연간 매출총이익 × 세발(VAT-) 흐름 <span style="font-size:13px;color:#94a3b8;font-weight:400">· '+yearLabelHm+'</span></h2>' +
+          '<p class="sub">고객사별 2행 비교 · <span style="color:#a5b4fc">매출총이익(GP)</span> / <span style="color:#fbbf24">세발(VAT-)</span> · 상단 연도 버튼으로 필터 · 고객사명 행을 클릭하면 두 지표 추이 그래프가 함께 표시됩니다</p>' +
           '<div class="heatmap-wrap">' +
             '<table class="heatmap-table" style="font-size:11px">' +
               '<thead><tr><th style="min-width:100px">고객사</th><th style="min-width:50px">구분</th>' + allMonths.map(m => '<th>'+m.replace(/년 /,'.')+'</th>').join('') + '<th class="hm-total">합계</th></tr></thead>' +
@@ -3039,43 +3036,32 @@ function render() {
                 const esc = c.name.replace(/'/g,"\\'").replace(/"/g,'&quot;');
                 const mJson = JSON.stringify(allMonths).replace(/"/g,'&quot;');
                 const gJson = JSON.stringify(c.gpArr);
+                const tJson = JSON.stringify(c.taxArr);
                 const safeName = c.name.replace(/"/g,'&quot;');
-                // GP row (clickable)
-                const gpRow = '<tr id="hm-row-'+safeName+'" style="cursor:pointer;border-top:2px solid #1e293b" onclick="toggleHeatmapClient(\''+esc+'\','+mJson+','+gJson+')">' +
-                  '<td rowspan="3" style="font-weight:600;color:#f8fafc;font-size:12px;border-right:1px solid #334155;vertical-align:middle">'+c.name+'</td>' +
+                const gpRow = '<tr id="hm-row-'+safeName+'" style="cursor:pointer;border-top:2px solid #1e293b" onclick="toggleHeatmapClient(\''+esc+'\','+mJson+','+gJson+','+tJson+')">' +
+                  '<td rowspan="2" style="font-weight:600;color:#f8fafc;font-size:12px;border-right:1px solid #334155;vertical-align:middle">'+c.name+'</td>' +
                   '<td style="color:#a5b4fc;font-weight:600;font-size:10px">GP</td>' +
                   c.gpArr.map(v => '<td><span class="heatmap-cell" style="background:'+heatColor(v,maxVal)+';color:'+(v===0?'#475569':v<0?'#fca5a5':'#f8fafc')+';font-size:10px">'+(v===0?'—':fmt(v))+'</span></td>').join('') +
                   '<td class="hm-total" style="color:#a5b4fc">'+fmt(c.gpTotal)+'</td></tr>';
-                // 세발 row
-                const taxRow = '<tr>' +
+                const taxRow = '<tr style="border-bottom:1px solid #1e293b">' +
                   '<td style="color:#fbbf24;font-weight:600;font-size:10px">세발</td>' +
                   c.taxArr.map(v => '<td><span class="heatmap-cell" style="background:'+(v===0?'transparent':'rgba(251,191,36,'+(0.12 + Math.min(v/maxVal,1)*0.55)+')')+';color:'+(v===0?'#475569':'#fef3c7')+';font-size:10px">'+(v===0?'—':fmt(v))+'</span></td>').join('') +
                   '<td class="hm-total" style="color:#fbbf24">'+fmt(c.taxTotal)+'</td></tr>';
-                // GAP row
-                const gapRow = '<tr style="border-bottom:1px solid #1e293b">' +
-                  '<td style="color:#86efac;font-weight:600;font-size:10px">GAP</td>' +
-                  c.gapArr.map(v => '<td><span class="heatmap-cell" style="background:'+gapColor(v)+';color:'+(v===0?'#475569':v>0?'#bbf7d0':'#fca5a5')+';font-size:10px">'+(v===0?'—':(v>0?'+':'')+fmt(v))+'</span></td>').join('') +
-                  '<td class="hm-total" style="color:'+(c.gapTotal>=0?'#86efac':'#fca5a5')+'">'+(c.gapTotal>0?'+':'')+fmt(c.gapTotal)+'</td></tr>';
-                return gpRow + taxRow + gapRow;
+                return gpRow + taxRow;
               }).join('') +
-              // 전체 합계 (3행)
               '<tr style="border-top:3px solid #475569;background:#0f172a">' +
-                '<td rowspan="3" style="font-weight:700;color:#a5b4fc;font-size:12px;border-right:1px solid #334155;vertical-align:middle">전체</td>' +
+                '<td rowspan="2" style="font-weight:700;color:#f8fafc;font-size:12px;border-right:1px solid #334155;vertical-align:middle">전체</td>' +
                 '<td style="color:#a5b4fc;font-weight:700;font-size:10px">GP</td>' +
                 colGPTotals.map(v => '<td style="text-align:center;font-weight:600;color:#cbd5e1;font-size:10px">'+(v===0?'—':fmt(v))+'</td>').join('') +
                 '<td class="hm-total" style="color:#a5b4fc">'+fmt(grandGP)+'</td></tr>' +
-              '<tr style="background:#0f172a">' +
+              '<tr style="background:#0f172a;border-bottom:2px solid #475569">' +
                 '<td style="color:#fbbf24;font-weight:700;font-size:10px">세발</td>' +
                 colTaxTotals.map(v => '<td style="text-align:center;font-weight:600;color:#fef3c7;font-size:10px">'+(v===0?'—':fmt(v))+'</td>').join('') +
                 '<td class="hm-total" style="color:#fbbf24">'+fmt(grandTax)+'</td></tr>' +
-              '<tr style="background:#0f172a;border-bottom:2px solid #475569">' +
-                '<td style="color:#86efac;font-weight:700;font-size:10px">GAP</td>' +
-                colGapTotals.map(v => '<td style="text-align:center;font-weight:600;color:'+(v>=0?'#bbf7d0':'#fca5a5')+';font-size:10px">'+(v===0?'—':(v>0?'+':'')+fmt(v))+'</td>').join('') +
-                '<td class="hm-total" style="color:'+(grandGap>=0?'#86efac':'#fca5a5')+'">'+(grandGap>0?'+':'')+fmt(grandGap)+'</td></tr>' +
               '</tbody>' +
             '</table>' +
           '</div>' +
-          (TAX_DATA && TAX_DATA.length ? '' : '<p style="color:#94a3b8;font-size:12px;margin-top:12px">⚠️ 세금계산서(세발) 데이터가 아직 로드되지 않았습니다. 새로고침 후 다시 확인해주세요.</p>') +
+          (taxRows.length ? '' : '<p style="color:#94a3b8;font-size:12px;margin-top:12px">⚠️ 선택한 연도의 세금계산서(세발) 데이터가 없거나 아직 로드되지 않았습니다.</p>') +
         '</div>';
       })()}
     </div>
