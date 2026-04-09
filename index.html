@@ -834,7 +834,7 @@ function parseGvizResponse(response, forceType) {
         const recStart = dateVal(29), recEnd = dateVal(30), contractEnd = dateVal(31);
         const actualRecEnd = dateVal(35);
         const tgtAccept = numVal(32), tgtShip = numVal(33), tgtRec = numVal(34);
-        if (campName && (discStart || shipStart || recStart || contractEnd)) {
+        if (campName) {
           if (!campaignTimeline) campaignTimeline = [];
           campaignTimeline.push({campaign:campName, client, brand, product, squad, year, month, gp, discStart, discEnd, shipStart, recStart, recEnd, contractEnd, tgtAccept, tgtShip, tgtRec, actualRecEnd});
         }
@@ -1147,12 +1147,13 @@ function parseCashflowForProducts(response) {
       const campName = String(val(1)).trim();
       const dateVal2 = (idx) => { const v = val(idx); if (!v) return null; const s = String(v).trim(); if (!s || s === '—') return null; if (s.match(/^Date\(/)) { const dm = s.match(/Date\((\d+),(\d+),(\d+)\)/); if(dm) return new Date(+dm[1],+dm[2],+dm[3]).toISOString().slice(0,10); } return s.length >= 10 ? s.slice(0,10) : null; };
       const numVal2 = (idx) => { const v = val(idx); return v ? (parseInt(v) || 0) : 0; };
-      if (numCols > 25 && campName) {
-        const ds = dateVal2(25), de = dateVal2(26), ss = dateVal2(27), rs = dateVal2(28), re = dateVal2(29), ce = dateVal2(30), are = dateVal2(34);
-        const ta = numVal2(31), ts = numVal2(32), tr = numVal2(33);
-        if (ds || ss || rs || ce) {
-          campList.push({campaign:campName, client, brand, product, squad, year, month, gp, discStart:ds, discEnd:de, shipStart:ss, recStart:rs, recEnd:re, contractEnd:ce, tgtAccept:ta, tgtShip:ts, tgtRec:tr, actualRecEnd:are});
-        }
+      if (campName) {
+        const numColsCheck = numCols > 25;
+        const ds = numColsCheck ? dateVal2(25) : null, de = numColsCheck ? dateVal2(26) : null, ss = numColsCheck ? dateVal2(27) : null;
+        const rs = numColsCheck ? dateVal2(28) : null, re = numColsCheck ? dateVal2(29) : null, ce = numColsCheck ? dateVal2(30) : null;
+        const are = numColsCheck ? dateVal2(34) : null;
+        const ta = numColsCheck ? numVal2(31) : 0, ts = numColsCheck ? numVal2(32) : 0, tr = numColsCheck ? numVal2(33) : 0;
+        campList.push({campaign:campName, client, brand, product, squad, year, month, gp, discStart:ds, discEnd:de, shipStart:ss, recStart:rs, recEnd:re, contractEnd:ce, tgtAccept:ta, tgtShip:ts, tgtRec:tr, actualRecEnd:are});
       }
     }
     // Array 형태로 변환 (GP 내림차순 정렬)
@@ -2382,10 +2383,10 @@ function render() {
           ${monthSelectHTML}
         </div>
         <div class="kpi-grid">
+          <div class="kpi" style="border-color:#22d3ee"><div class="label">월 매출</div><div class="value" style="color:#22d3ee">${fmt(am?.totalIn||0)}</div><div style="margin-top:4px">${momIn}</div></div>
+          <div class="kpi" style="border-color:#f87171"><div class="label">월 비용</div><div class="value" style="color:#f87171">${fmt(am?.totalOut||0)}</div><div style="margin-top:4px">${momOut}</div></div>
           <div class="kpi" style="border-color:#818cf8"><div class="label">월 매출총이익</div><div class="value" style="color:#818cf8">${fmt(am?.gp||0)}</div><div style="margin-top:4px">${momGP}</div></div>
-          <div class="kpi" style="border-color:#22d3ee"><div class="label">수취예정(IN)</div><div class="value" style="color:#22d3ee">${fmt(am?.totalIn||0)}</div><div style="margin-top:4px">${momIn}</div></div>
-          <div class="kpi" style="border-color:#f87171"><div class="label">지불예정(OUT)</div><div class="value" style="color:#f87171">${fmt(am?.totalOut||0)}</div><div style="margin-top:4px">${momOut}</div></div>
-          <div class="kpi" style="border-color:#4ade80"><div class="label">마진율</div><div class="value" style="color:#4ade80">${curMargin.toFixed(1)}%</div><div style="margin-top:4px">${momMargin}</div></div>
+          <div class="kpi" style="border-color:#4ade80"><div class="label">월 매출총이익율</div><div class="value" style="color:#4ade80">${curMargin.toFixed(1)}%</div><div style="margin-top:4px">${momMargin}</div></div>
         </div>
         <table>
           <thead><tr><th>고객사</th><th>브랜드</th><th>담당</th><th>상태</th><th style="text-align:right">수취예정(매출)</th><th style="text-align:right">매출총이익</th><th style="text-align:right">이익률</th><th style="text-align:right">전월 대비</th><th>상품</th></tr></thead>
