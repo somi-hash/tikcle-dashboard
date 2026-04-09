@@ -265,9 +265,20 @@
   .card .sub { color:#64748b; font-size:12px; margin-top:-12px; margin-bottom:16px; }
   .grid2 { display:grid; grid-template-columns:300px 1fr; gap:24px; align-items:start; }
   .stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
-  .stat-box { background:#0f172a; border-radius:10px; padding:12px 14px; text-align:center; }
-  .stat-box .label { color:#64748b; font-size:11px; }
+  .stat-box { background:#0f172a; border-radius:10px; padding:12px 14px; text-align:center; border:1px solid #1e293b; border-top:2px solid #334155; transition:border-color .2s; }
+  .stat-box.accent-cyan { border-top-color:#22d3ee; }
+  .stat-box.accent-indigo { border-top-color:#818cf8; }
+  .stat-box.accent-green { border-top-color:#4ade80; }
+  .stat-box.accent-amber { border-top-color:#f59e0b; }
+  .stat-box.accent-red { border-top-color:#f87171; }
+  .stat-box .label { color:#64748b; font-size:11px; line-height:1.4; word-break:keep-all; }
   .stat-box .value { font-size:18px; font-weight:700; margin-top:4px; }
+  @media (max-width:900px) {
+    .stat-grid-6 { grid-template-columns:repeat(3,1fr) !important; }
+  }
+  @media (max-width:560px) {
+    .stat-grid-6 { grid-template-columns:repeat(2,1fr) !important; }
+  }
   .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
   .kpi { background:#0f172a; border-radius:10px; padding:14px 16px; border-left:3px solid; }
   .kpi .label { color:#64748b; font-size:11px; }
@@ -421,8 +432,8 @@ if (sessionStorage.getItem('tkcle_auth') === '1') {
 </script>
 <script>
 // ─── GOOGLE SHEETS CONFIG ────────────────────────────────────────
-const DEFAULT_SHEETS_ID = '1MbxoehGgkveDwle7gFWfPlCl1XlHVmzqEw8HtOOkIm8';
-const DEFAULT_MAIN_GID = 1397695984; // 통합정산 시트 gid
+const DEFAULT_SHEETS_ID = '1sCiHuEBA-Qr-Ekg4DyWv-hLy1p9CvMiso5ZnPg5j52Q';
+const DEFAULT_MAIN_GID = 93829805; // 통합정산 시트 gid
 let SHEETS_ID = localStorage.getItem('tkcle_sheets_id') || DEFAULT_SHEETS_ID;
 let MAIN_GID = parseInt(localStorage.getItem('tkcle_main_gid')) || DEFAULT_MAIN_GID;
 let GAS_URL = localStorage.getItem('tkcle_gas_url') || '';
@@ -431,7 +442,7 @@ let lastUpdateTime = null;
 let isLoading = false;
 let PRODUCT_MAP = {};
 let CAMPAIGN_DATA = []; // [{campaign, client, brand, product, squad, year, month, discStart, discEnd, shipStart, recStart, recEnd, contractEnd, tgtAccept, tgtShip, tgtRec, actualRecEnd}]
-const TAX_GID = 474078757; // 매출정산 시트 gid
+const TAX_GID = 982424415; // 매출정산 시트 gid
 let TAX_DATA = []; // [{ym, campaign, client, brand, squad, year, month, settleType, taxAmtEx, taxAmtIn, issueDate, invoiceInfo, payDueDate, paid}]
 // ─── Google gviz 기본 응답 핸들러 (JSONP 에러 캐치용) ────────────
 // Google의 gviz API는 에러 발생 시 tqx=responseHandler를 무시하고
@@ -1273,7 +1284,7 @@ function parseCashflowForProducts(response) {
 async function loadProductData(sheetId) {
   dbg('📦 상품 데이터 로드 시작...');
   const manualGid = localStorage.getItem('tkcle_cashflow_gid');
-  const defaultGids = [0, 1, 2, 3, 4, 5].filter(g => g !== MAIN_GID);
+  const defaultGids = [159763230, 0, 1, 2, 3, 4, 5].filter(g => g !== MAIN_GID);
   const gidList = manualGid ? [parseInt(manualGid)] : defaultGids;
   dbg('탐색 gid 목록: ['+gidList.join(',')+']'+(manualGid?' (수동설정)':''));
   let mainSig = null;
@@ -1834,8 +1845,8 @@ function renderCumChart(canvas, monthly, target, months) {
   const cumGPs = monthly.map(m => m.cumGP);
   cumChart = new Chart(canvas, { type:'line', data: { labels: monthly.map(m=>m.ym), datasets: [
     { label:'누적 매출총이익', data:cumGPs, borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,0.15)', fill:true, tension:0.3, pointRadius:4, pointBackgroundColor:cumPointColors, borderWidth:2.5, segment: { borderDash: cumSegmentStyle, borderColor: cumSegmentColor } },
-    { label:'목표 라인', data:cumTargets, borderColor:'#f59e0b', borderDash:[6,4], pointRadius:0, borderWidth:1.5, fill:false }
-  ]}, options: { responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{legend:{position:'bottom'},tooltip:{
+    { label:'목표 누적 라인', data:cumTargets, borderColor:'#f59e0b', borderDash:[6,4], pointRadius:0, borderWidth:1.5, fill:false }
+  ]}, options: { responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, plugins:{legend:{position:'bottom', labels:{color:'#94a3b8', font:{size:11}, boxWidth:14, padding:14, usePointStyle:true}},tooltip:{
     callbacks:{
       title: (items) => items[0]?.label || '',
       label: () => null,
@@ -2355,29 +2366,58 @@ function render() {
           <div style="flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center">
             <canvas id="gaugeCanvas"></canvas>
           </div>
-          <div style="flex:1 1 0;display:grid;grid-template-columns:repeat(6,1fr);gap:8px">
-            <div class="stat-box" style="min-width:0"><div class="label">누적 수취예정(매출)</div><div class="value" style="color:#22d3ee;font-size:clamp(12px,1.2vw,18px)">${fmt(totalIn)}</div></div>
-            <div class="stat-box" style="min-width:0"><div class="label">누적 매출총이익</div><div class="value" style="color:#818cf8;font-size:clamp(12px,1.2vw,18px)">${fmt(totalGP)}</div></div>
-            <div class="stat-box" style="min-width:0"><div class="label">누적 이익률</div><div class="value" style="color:#4ade80;font-size:clamp(12px,1.2vw,18px)">${overallMargin.toFixed(1)}%</div></div>
-            <div class="stat-box" style="min-width:0"><div class="label">잔여 목표</div><div class="value" style="color:${ANNUAL_TARGET-totalGP>0?'#f59e0b':'#4ade80'};font-size:clamp(12px,1.2vw,18px)">${ANNUAL_TARGET-totalGP>0?fmt(ANNUAL_TARGET-totalGP):'달성!'}</div></div>
-            <div class="stat-box" style="min-width:0"><div class="label">실제 GP 월평균 <span style="color:#64748b;font-size:10px">(${elapsedCount}개월)</span></div><div class="value" style="color:#22d3ee;font-size:clamp(12px,1.2vw,18px)">${fmt(Math.round(avgActual))}</div></div>
-            <div class="stat-box" style="min-width:0"><div class="label">필요 GP 월평균 <span style="color:#64748b;font-size:10px">(잔여 ${remainingCount}개월)</span></div><div class="value" style="color:${avgNeeded>avgActual?'#f87171':'#4ade80'};font-size:clamp(12px,1.2vw,18px)">${avgNeeded<=0?'달성!':fmt(Math.round(avgNeeded))}</div></div>
+          <div class="stat-grid-6" style="flex:1 1 0;display:grid;grid-template-columns:repeat(6,1fr);gap:8px">
+            <div class="stat-box accent-cyan" style="min-width:0"><div class="label">누적 수취예정(매출)</div><div class="value" style="color:#22d3ee;font-size:clamp(12px,1.2vw,18px)">${fmt(totalIn)}</div></div>
+            <div class="stat-box accent-indigo" style="min-width:0"><div class="label">누적 매출총이익</div><div class="value" style="color:#818cf8;font-size:clamp(12px,1.2vw,18px)">${fmt(totalGP)}</div></div>
+            <div class="stat-box accent-green" style="min-width:0"><div class="label">누적 이익률</div><div class="value" style="color:#4ade80;font-size:clamp(12px,1.2vw,18px)">${overallMargin.toFixed(1)}%</div></div>
+            <div class="stat-box ${ANNUAL_TARGET-totalGP>0?'accent-amber':'accent-green'}" style="min-width:0"><div class="label">잔여 목표</div><div class="value" style="color:${ANNUAL_TARGET-totalGP>0?'#f59e0b':'#4ade80'};font-size:clamp(12px,1.2vw,18px)">${ANNUAL_TARGET-totalGP>0?fmt(ANNUAL_TARGET-totalGP):'달성!'}</div></div>
+            <div class="stat-box accent-cyan" style="min-width:0"><div class="label">실제 GP 월평균 <span style="color:#475569;font-size:10px">(${elapsedCount}개월)</span></div><div class="value" style="color:#22d3ee;font-size:clamp(12px,1.2vw,18px)">${fmt(Math.round(avgActual))}</div></div>
+            <div class="stat-box ${avgNeeded>avgActual?'accent-red':'accent-green'}" style="min-width:0"><div class="label">필요 GP 월평균 <span style="color:#475569;font-size:10px">(잔여 ${remainingCount}개월)</span></div><div class="value" style="color:${avgNeeded>avgActual?'#f87171':'#4ade80'};font-size:clamp(12px,1.2vw,18px)">${avgNeeded<=0?'달성!':fmt(Math.round(avgNeeded))}</div></div>
           </div>
         </div>
-        <div style="height:260px;margin-top:16px"><canvas id="cumCanvas"></canvas></div>
+        <div style="margin-top:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;font-weight:600;color:#94a3b8">누적 GP 달성 추이</span>
+            <span style="font-size:10px;color:#475569">— 목표 누적 라인 (균등 배분 기준)</span>
+          </div>
+          <div style="height:240px"><canvas id="cumCanvas"></canvas></div>
+        </div>
       </div>
       <div class="card">
         <h2>📈 월별 매출총이익 변동 분석</h2>
-        <p class="sub">막대를 클릭하면 해당 월의 고객사 포트폴리오를 확인할 수 있습니다</p>
-        <div class="chart-row">
-          <div style="height:320px"><canvas id="gpBarCanvas"></canvas></div>
-          <div style="height:320px"><canvas id="wfCanvas"></canvas></div>
+        <div class="chart-row" style="margin-bottom:0">
+          <div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px">
+              <div>
+                <span style="font-size:13px;font-weight:600;color:#e2e8f0">매출 · GP · 이익률</span>
+                <span style="font-size:11px;color:#475569;margin-left:8px">막대 클릭 → 고객사 포트폴리오</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#94a3b8"><span style="width:10px;height:10px;border-radius:2px;background:#4f46e5;display:inline-block"></span>GP</span>
+                <span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#94a3b8"><span style="width:10px;height:10px;border-radius:2px;background:rgba(34,211,238,0.4);display:inline-block"></span>매출</span>
+                <span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#4ade80"><span style="width:18px;height:2px;background:#4ade80;display:inline-block;border-radius:1px"></span>이익률</span>
+              </div>
+            </div>
+            <div style="height:300px;cursor:pointer" title="막대를 클릭하면 해당 월 포트폴리오로 이동합니다"><canvas id="gpBarCanvas"></canvas></div>
+          </div>
+          <div>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px">
+              <div>
+                <span style="font-size:13px;font-weight:600;color:#e2e8f0">GP 변동 구성</span>
+                <span style="font-size:11px;color:#475569;margin-left:8px">신규유입 · 복귀 · 기존변동 · 이탈</span>
+              </div>
+              <span style="font-size:10px;color:#475569">막대 상단 = 전월 대비 총 GP 증감</span>
+            </div>
+            <div style="height:300px"><canvas id="wfCanvas"></canvas></div>
+          </div>
         </div>
-        <div style="display:flex;align-items:center;gap:16px;margin-top:8px;padding:0 4px;flex-wrap:wrap">
-          <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#94a3b8"><span style="width:12px;height:12px;border-radius:3px;background:#4f46e5;display:inline-block"></span> GP 확정</span>
-          <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#94a3b8"><span style="width:12px;height:12px;border-radius:3px;background:rgba(34,211,238,0.35);display:inline-block"></span> 매출 확정</span>
-          <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#64748b"><span style="width:12px;height:12px;border-radius:3px;background:rgba(79,70,229,0.3);border:1px dashed rgba(129,140,248,0.6);display:inline-block"></span> 예정 (미래)</span>
-          <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#4ade80"><span style="width:24px;height:2px;background:#4ade80;display:inline-block;border-radius:1px"></span> 이익률(%)</span>
+        <div style="display:flex;align-items:center;gap:14px;margin-top:10px;padding:8px 4px;border-top:1px solid #1e293b;flex-wrap:wrap">
+          <span style="font-size:10px;color:#475569;font-weight:500">범례</span>
+          <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#64748b"><span style="width:10px;height:10px;border-radius:2px;background:#4f46e5;display:inline-block"></span> GP 확정</span>
+          <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#64748b"><span style="width:10px;height:10px;border-radius:2px;background:rgba(34,211,238,0.35);display:inline-block"></span> 매출 확정</span>
+          <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#475569"><span style="width:10px;height:10px;border-radius:2px;background:rgba(79,70,229,0.3);border:1px dashed rgba(129,140,248,0.5);display:inline-block"></span> 미래 예정</span>
+          <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#4ade80"><span style="width:20px;height:2px;background:#4ade80;display:inline-block;border-radius:1px"></span> 이익률(%)</span>
+          <span style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:10px;color:#4ade80">▲ <span style="color:#f87171">▼</span> <span style="color:#64748b">막대 상단 = 전월 GP 증감</span></span>
         </div>
       </div>
     </div>
