@@ -783,13 +783,13 @@ function parseGvizResponse(response, forceType) {
       const iSquad = findColIndex(cols, ['스쿼드', '담당']);
       const iYear = findColIndex(cols, ['년']);
       const iMonth = cols.findIndex((c,idx) => idx > iYear && (c.label||'').trim() === '월');
-      const iIN = findColIndex(cols, ['수취예정']);
-      const iOUT = findColIndex(cols, ['지불예정']);
-      const iSebalMain = findColIndex(cols, ['세발']);   // I열
-      const iECost = findColIndex(cols, ['e.비용']);     // K열
-      const iRCost = findColIndex(cols, ['r.비용']);     // L열
-      const iGP = findColIndex(cols, ['e.매출총이익', '매출총이익']); // M열
-      const iRGP = findColIndex(cols, ['r.매출총이익']); // N열
+      const iIN  = findColIndex(cols, ['수취예정금액', '수취예정']);            // H열: 수취예정금액(IN)
+      const iOUT = findColIndex(cols, ['지불예정금액', '지불예정']);            // K열: 지불예정금액(OUT) = e.비용
+      const iSebalMain = findColIndex(cols, ['세발금액(VAT-)', '세발(VAT-)', '세발금액']); // I열: 세발금액(VAT-)
+      const iECost = iOUT;                                                     // K열: 지불예정금액(OUT) = e.비용 (iOUT과 동일)
+      const iRCost = findColIndex(cols, ['실지불금액', '실지불']);              // L열: 실지불금액(to인플) = r.비용
+      const iGP   = findColIndex(cols, ['e.매출총이익']);                       // M열: e.매출총이익
+      const iRGP  = findColIndex(cols, ['실제 매출총이익', '실제매출총이익', 'r.매출총이익']); // N열: 실제 매출총이익
       if (typeof dbg === 'function') dbg('   컬럼 매핑: ym='+iYM+' client='+iClient+' IN='+iIN+' OUT='+iOUT+' sebal='+iSebalMain+' eCost='+iECost+' rCost='+iRCost+' eGP='+iGP+' rGP='+iRGP);
       if (iYM < 0 || iClient < 0 || iIN < 0) {
         if (typeof dbg === 'function') dbg('❌ 필수 열 누락 → 파싱 실패');
@@ -3588,9 +3588,13 @@ function render() {
           if (!hasIn && !hasOut) return headerHTML+'<div class="card"><p style="text-align:center;padding:30px;color:#94a3b8">데이터를 불러오는 중입니다...<br><span style="font-size:11px;color:#475569">[정산]거래처 · [정산]인플 시트 연동 필요</span></p></div>';
           // ── 고객사+브랜드 기준 집계 ([정산]거래처=수취, [정산]인플=지급) ──
           const cg = {};
-          // 키는 소문자로 정규화 (대소문자 무관 매칭), 표시용 레이블은 원본 유지
-          const cgLabels = {}; // k → {client, brand} 원본 레이블 (첫 등장 기준)
-          const normKey = (cl, br) => (cl||'').trim().toLowerCase()+'__'+(br||'').trim().toLowerCase();
+          // 키 정규화: client 없으면 '__기타__' 단일 버킷으로 합산 (brand 무관)
+          const cgLabels = {};
+          const normKey = (cl, br) => {
+            const c = (cl||'').trim();
+            if (!c) return '__기타__';
+            return c.toLowerCase()+'__'+(br||'').trim().toLowerCase();
+          };
           // 수취: TAX_DATA (세발여부=TRUE, issueDate 기준)
           if (hasIn) TAX_DATA.forEach(d => {
             if (!d.issueDate) return;
@@ -3609,7 +3613,12 @@ function render() {
           });
           // 표시용 레이블 합치기
           Object.keys(cg).forEach(k => { cg[k].client=cgLabels[k]?.client||''; cg[k].brand=cgLabels[k]?.brand||''; });
-          const cl = Object.values(cg).sort((a,b)=>b.inAmt-a.inAmt);
+          // 기타(거래처 미기재)는 항상 최하단
+          const cl = Object.values(cg).sort((a,b) => {
+            if (!a.client && b.client) return 1;
+            if (a.client && !b.client) return -1;
+            return b.inAmt - a.inAmt;
+          });
           const tIn=cl.reduce((s,c)=>s+c.inAmt,0), tOut=cl.reduce((s,c)=>s+c.outAmt,0), tNet=tIn-tOut;
           const tMr = tIn>0?((tIn-tOut)/tIn*100):0;
           // ── 연월별 상세 빌더 (TAX_DATA 수취 + INFLU_PAY_DATA 지급) ──
