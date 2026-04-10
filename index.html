@@ -2992,14 +2992,7 @@ function render() {
               // status map from port.active (per client)
               const stMap={};
               port.active.forEach(c=>{stMap[c.name]=c.status;});
-              let grpList=Object.values(currGrp).sort((a,b)=>b.gp-a.gp);
-              // 캠페인 상태 필터 적용
-              if(portStatusFilter){
-                const normSt=s=>String(s||'').trim()
-                  .replace(/^운영\s*중[\s\S]*$/,'운영 중').replace(/^운영\s*전[\s\S]*$/,'운영 전')
-                  .replace(/^마감[\s\S]*$/,'마감').replace(/^홀딩[\s\S]*$/,'홀딩');
-                grpList=grpList.filter(bg=>bg.camps.some(d=>normSt(d.campStatus)===portStatusFilter));
-              }
+              const grpList=Object.values(currGrp).sort((a,b)=>b.gp-a.gp);
               return grpList.map((bg,bi)=>{
                 const eid='pd_'+bi;
                 const status=stMap[bg.client]||'C';
@@ -3010,12 +3003,11 @@ function render() {
                 const normStMain=s=>String(s||'').trim()
                   .replace(/^운영\s*중[\s\S]*$/,'운영 중').replace(/^운영\s*전[\s\S]*$/,'운영 전')
                   .replace(/^마감[\s\S]*$/,'마감').replace(/^홀딩[\s\S]*$/,'홀딩');
-                const filteredCamps=portStatusFilter
-                  ? bg.camps.filter(d=>normStMain(d.campStatus)===portStatusFilter)
-                  : bg.camps;
-                const fInAmt=filteredCamps.reduce((s,d)=>s+(d.inAmt||0),0);
+                // 금액 재계산도 그룹핑된 campRows 기준 사용 (raw camps 아님)
+                const filteredCamps=portStatusFilter ? campRows : Object.values(cg);
+                const fInAmt =filteredCamps.reduce((s,d)=>s+(d.inAmt ||0),0);
                 const fOutAmt=filteredCamps.reduce((s,d)=>s+(d.outAmt||0),0);
-                const fGP=filteredCamps.reduce((s,d)=>s+(d.gp||0),0);
+                const fGP   =filteredCamps.reduce((s,d)=>s+(d.gp    ||0),0);
                 const dispInAmt=portStatusFilter?fInAmt:bg.inAmt;
                 const dispOutAmt=portStatusFilter?fOutAmt:bg.outAmt;
                 const dispGP=portStatusFilter?fGP:bg.gp;
@@ -3049,9 +3041,11 @@ function render() {
                   if(d.campStatus) cg[k].campStatus=d.campStatus;
                   if(d.product) cg[k].product=d.product;
                 });
-                // 상태 필터 적용: 서브테이블도 해당 상태 캠페인만 표시
+                // 상태 필터 적용: 그룹핑된 campRows 기준으로 필터 (raw camps 아님)
                 let campRows=Object.values(cg);
                 if(portStatusFilter) campRows=campRows.filter(d=>normStV2(d.campStatus)===portStatusFilter);
+                // 필터 적용 후 매칭 캠페인 없으면 이 행 전체 제외
+                if(portStatusFilter && campRows.length===0) return '';
                 const hasMulti=campRows.length>1;
                 const showDetail=campRows.length>0;
                 const multiTag=hasMulti?' <span style="font-size:9px;background:#312e81;color:#a5b4fc;border:1px solid #4338ca;border-radius:8px;padding:1px 5px;font-weight:700;vertical-align:middle">+'+campRows.length+'</span>':'';
@@ -3111,7 +3105,58 @@ function render() {
                     '</table></td></tr>';
                 }
                 return mainRow+detailRow;
-              }).join('');
+              }).filter(Boolean).join('');
+            })()}
+            ${(()=>{
+              // 포트폴리오 하단 합계 행
+              if(!CAMPAIGN_DATA||!am) return '';
+              const selYr2=String(am.year||'').replace(/^20/,'');
+              const selMo=parseInt(am.month||0);
+              if(!selYr2||!selMo) return '';
+              const normStSum=s=>String(s||'').trim()
+                .replace(/^운영\s*중[\s\S]*$/,'운영 중').replace(/^운영\s*전[\s\S]*$/,'운영 전')
+                .replace(/^마감[\s\S]*$/,'마감').replace(/^홀딩[\s\S]*$/,'홀딩');
+              // grpList 재집계
+              const sumGrp={};
+              CAMPAIGN_DATA.forEach(d=>{
+                const dy=String(d.year||'').replace(/^20/,'');
+                const dm=parseInt(d.month);
+                if(dy!==selYr2||dm!==selMo) return;
+                const k=(d.client||'')+'__'+(d.brand||'');
+                if(!sumGrp[k]) sumGrp[k]={camps:[]};
+                sumGrp[k].camps.push(d);
+              });
+              let totIn=0, totOut=0, totGP=0, rowCount=0;
+              Object.values(sumGrp).forEach(bg=>{
+                // 그룹핑 후 캠페인 상태 결정
+                const cg2={};
+                bg.camps.forEach(d=>{
+                  const k=d.campaign||(d.brand+'_'+d.product+'_'+(d.country||''));
+                  if(!cg2[k]) cg2[k]={campStatus:'',inAmt:0,outAmt:0,gp:0};
+                  cg2[k].inAmt+=(d.inAmt||0); cg2[k].outAmt+=(d.outAmt||0); cg2[k].gp+=(d.gp||0);
+                  if(d.campStatus) cg2[k].campStatus=d.campStatus;
+                });
+                let rows2=Object.values(cg2);
+                if(portStatusFilter) rows2=rows2.filter(d=>normStSum(d.campStatus)===portStatusFilter);
+                if(portStatusFilter&&rows2.length===0) return;
+                rowCount++;
+                rows2.forEach(d=>{totIn+=d.inAmt; totOut+=d.outAmt; totGP+=d.gp;});
+              });
+              if(rowCount===0) return '';
+              const totMr=totIn>0?(totGP/totIn*100):0;
+              const totMc=totMr>=30?'#4ade80':totMr>=15?'#fbbf24':'#f87171';
+              const totLabel=portStatusFilter
+                ? '<span style="color:#94a3b8;font-size:10px;font-weight:400">('+portStatusFilter+' 기준)</span>'
+                : '';
+              return '<tr style="border-top:2px solid #334155;background:#0a1628">'+
+                '<td style="padding:8px 8px;color:#cbd5e1;font-weight:700">합계 '+totLabel+'</td>'+
+                '<td colspan="2"></td>'+
+                '<td style="padding:8px 8px;text-align:right;color:#22d3ee;font-weight:700">'+fmtW(totIn)+'</td>'+
+                '<td style="padding:8px 8px;text-align:right;color:#f87171;font-weight:700">'+fmtW(totOut)+'</td>'+
+                '<td style="padding:8px 8px;text-align:right;color:'+(totGP>=0?'#e2e8f0':'#f87171')+';font-weight:700">'+fmtW(totGP)+'</td>'+
+                '<td style="padding:8px 8px;text-align:right;color:'+totMc+';font-weight:700">'+totMr.toFixed(1)+'%</td>'+
+                '<td colspan="2"></td>'+
+              '</tr>';
             })()}
           </tbody>
         </table>
