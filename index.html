@@ -2993,26 +2993,23 @@ function render() {
               const stMap={};
               port.active.forEach(c=>{stMap[c.name]=c.status;});
               const grpList=Object.values(currGrp).sort((a,b)=>b.gp-a.gp);
-              return grpList.map((bg,bi)=>{
+              // 합계 누적용 변수 + normStV2/stBadge2 hoisting (map 반복 재정의 제거)
+              let totIn=0, totOut=0, totGP=0, rowCount=0;
+              const normStV2=s=>String(s||'').trim()
+                .replace(/^운영\s*중[\s\S]*$/,'운영 중').replace(/^운영\s*전[\s\S]*$/,'운영 전')
+                .replace(/^마감[\s\S]*$/,'마감').replace(/^홀딩[\s\S]*$/,'홀딩');
+              const stBadge2=s=>{
+                const v=normStV2(s);
+                const sm={'운영 전':{bg:'#1c1200',co:'#f59e0b',bo:'#92400e'},'운영 중':{bg:'#052e16',co:'#34d399',bo:'#065f46'},'마감':{bg:'#0f172a',co:'#64748b',bo:'#1e293b'},'홀딩':{bg:'#1f0909',co:'#fca5a5',bo:'#7f1d1d'}};
+                const m=sm[v]; if(!v||!m) return '<span style="color:#334155;font-size:10px">—</span>';
+                return '<span style="padding:1px 7px;border-radius:10px;background:'+m.bg+';color:'+m.co+';border:1px solid '+m.bo+';font-size:10px;font-weight:600;display:inline-block;white-space:nowrap">'+v+'</span>';
+              };
+              const rowsHTML=grpList.map((bg,bi)=>{
                 const eid='pd_'+bi;
                 const status=stMap[bg.client]||'C';
                 const badgeCls=status==='N'?'badge-new':status==='R'?'badge-re':'badge-cont';
                 const badgeTxt=status==='N'?'신규':status==='R'?'복귀':'기존';
                 const rowCls=(status==='N'||status==='R')?'new-row':'';
-                // 필터 적용 시 메인 행 금액도 해당 캠페인 기준으로 재계산
-                const normStMain=s=>String(s||'').trim()
-                  .replace(/^운영\s*중[\s\S]*$/,'운영 중').replace(/^운영\s*전[\s\S]*$/,'운영 전')
-                  .replace(/^마감[\s\S]*$/,'마감').replace(/^홀딩[\s\S]*$/,'홀딩');
-                // 금액 재계산도 그룹핑된 campRows 기준 사용 (raw camps 아님)
-                const filteredCamps=portStatusFilter ? campRows : Object.values(cg);
-                const fInAmt =filteredCamps.reduce((s,d)=>s+(d.inAmt ||0),0);
-                const fOutAmt=filteredCamps.reduce((s,d)=>s+(d.outAmt||0),0);
-                const fGP   =filteredCamps.reduce((s,d)=>s+(d.gp    ||0),0);
-                const dispInAmt=portStatusFilter?fInAmt:bg.inAmt;
-                const dispOutAmt=portStatusFilter?fOutAmt:bg.outAmt;
-                const dispGP=portStatusFilter?fGP:bg.gp;
-                const mr=dispInAmt>0?(dispGP/dispInAmt*100):0;
-                const mc=mr>=30?'#4ade80':mr>=15?'#fbbf24':'#f87171';
                 const prevGP=prevGrp[bg.client+'__'+bg.brand];
                 const chg=prevGP!==undefined?bg.gp-prevGP:(status==='N'?'N':status==='R'?'R':null);
                 const chgCol=typeof chg==='number'
@@ -3021,15 +3018,6 @@ function render() {
                   :chg==='R'?'<span style="color:#7dd3fc;font-weight:500">RE</span>'
                   :'<span style="color:#475569">—</span>');
                 // 캠페인별 그룹 (campaign명 기준, 금액 합산 포함)
-                const normStV2=s=>String(s||'').trim()
-                  .replace(/^운영\s*중[\s\S]*$/,'운영 중').replace(/^운영\s*전[\s\S]*$/,'운영 전')
-                  .replace(/^마감[\s\S]*$/,'마감').replace(/^홀딩[\s\S]*$/,'홀딩');
-                const stBadge2=s=>{
-                  const v=normStV2(s);
-                  const sm={'운영 전':{bg:'#1c1200',co:'#f59e0b',bo:'#92400e'},'운영 중':{bg:'#052e16',co:'#34d399',bo:'#065f46'},'마감':{bg:'#0f172a',co:'#64748b',bo:'#1e293b'},'홀딩':{bg:'#1f0909',co:'#fca5a5',bo:'#7f1d1d'}};
-                  const m=sm[v]; if(!v||!m) return '<span style="color:#334155;font-size:10px">—</span>';
-                  return '<span style="padding:1px 7px;border-radius:10px;background:'+m.bg+';color:'+m.co+';border:1px solid '+m.bo+';font-size:10px;font-weight:600;display:inline-block;white-space:nowrap">'+v+'</span>';
-                };
                 const cg={};
                 bg.camps.forEach(d=>{
                   const k=d.campaign||(d.brand+'_'+d.product+'_'+(d.country||''));
@@ -3046,6 +3034,18 @@ function render() {
                 if(portStatusFilter) campRows=campRows.filter(d=>normStV2(d.campStatus)===portStatusFilter);
                 // 필터 적용 후 매칭 캠페인 없으면 이 행 전체 제외
                 if(portStatusFilter && campRows.length===0) return '';
+                // 금액 재계산: cg/campRows 정의 후 올바른 위치에서 계산
+                const filteredCamps=portStatusFilter?campRows:Object.values(cg);
+                const fInAmt =filteredCamps.reduce((s,d)=>s+(d.inAmt ||0),0);
+                const fOutAmt=filteredCamps.reduce((s,d)=>s+(d.outAmt||0),0);
+                const fGP   =filteredCamps.reduce((s,d)=>s+(d.gp    ||0),0);
+                const dispInAmt =portStatusFilter?fInAmt :bg.inAmt;
+                const dispOutAmt=portStatusFilter?fOutAmt:bg.outAmt;
+                const dispGP    =portStatusFilter?fGP    :bg.gp;
+                // 합계 누적 (단일 패스, footer IIFE 중복 순회 불필요)
+                totIn+=dispInAmt; totOut+=dispOutAmt; totGP+=dispGP; rowCount++;
+                const mr=dispInAmt>0?(dispGP/dispInAmt*100):0;
+                const mc=mr>=30?'#4ade80':mr>=15?'#fbbf24':'#f87171';
                 const hasMulti=campRows.length>1;
                 const showDetail=campRows.length>0;
                 const multiTag=hasMulti?' <span style="font-size:9px;background:#312e81;color:#a5b4fc;border:1px solid #4338ca;border-radius:8px;padding:1px 5px;font-weight:700;vertical-align:middle">+'+campRows.length+'</span>':'';
@@ -3106,49 +3106,12 @@ function render() {
                 }
                 return mainRow+detailRow;
               }).filter(Boolean).join('');
-            })()}
-            ${(()=>{
-              // 포트폴리오 하단 합계 행
-              if(!CAMPAIGN_DATA||!am) return '';
-              const selYr2=String(am.year||'').replace(/^20/,'');
-              const selMo=parseInt(am.month||0);
-              if(!selYr2||!selMo) return '';
-              const normStSum=s=>String(s||'').trim()
-                .replace(/^운영\s*중[\s\S]*$/,'운영 중').replace(/^운영\s*전[\s\S]*$/,'운영 전')
-                .replace(/^마감[\s\S]*$/,'마감').replace(/^홀딩[\s\S]*$/,'홀딩');
-              // grpList 재집계
-              const sumGrp={};
-              CAMPAIGN_DATA.forEach(d=>{
-                const dy=String(d.year||'').replace(/^20/,'');
-                const dm=parseInt(d.month);
-                if(dy!==selYr2||dm!==selMo) return;
-                const k=(d.client||'')+'__'+(d.brand||'');
-                if(!sumGrp[k]) sumGrp[k]={camps:[]};
-                sumGrp[k].camps.push(d);
-              });
-              let totIn=0, totOut=0, totGP=0, rowCount=0;
-              Object.values(sumGrp).forEach(bg=>{
-                // 그룹핑 후 캠페인 상태 결정
-                const cg2={};
-                bg.camps.forEach(d=>{
-                  const k=d.campaign||(d.brand+'_'+d.product+'_'+(d.country||''));
-                  if(!cg2[k]) cg2[k]={campStatus:'',inAmt:0,outAmt:0,gp:0};
-                  cg2[k].inAmt+=(d.inAmt||0); cg2[k].outAmt+=(d.outAmt||0); cg2[k].gp+=(d.gp||0);
-                  if(d.campStatus) cg2[k].campStatus=d.campStatus;
-                });
-                let rows2=Object.values(cg2);
-                if(portStatusFilter) rows2=rows2.filter(d=>normStSum(d.campStatus)===portStatusFilter);
-                if(portStatusFilter&&rows2.length===0) return;
-                rowCount++;
-                rows2.forEach(d=>{totIn+=d.inAmt; totOut+=d.outAmt; totGP+=d.gp;});
-              });
-              if(rowCount===0) return '';
+              // 합계 행: grpList 단일 패스에서 이미 계산 (2차 CAMPAIGN_DATA 순회 제거)
+              if(rowCount===0) return rowsHTML;
               const totMr=totIn>0?(totGP/totIn*100):0;
               const totMc=totMr>=30?'#4ade80':totMr>=15?'#fbbf24':'#f87171';
-              const totLabel=portStatusFilter
-                ? '<span style="color:#94a3b8;font-size:10px;font-weight:400">('+portStatusFilter+' 기준)</span>'
-                : '';
-              return '<tr style="border-top:2px solid #334155;background:#0a1628">'+
+              const totLabel=portStatusFilter?'<span style="color:#94a3b8;font-size:10px;font-weight:400">('+portStatusFilter+' 기준)</span>':'';
+              return rowsHTML+'<tr style="border-top:2px solid #334155;background:#0a1628">'+
                 '<td style="padding:8px 8px;color:#cbd5e1;font-weight:700">합계 '+totLabel+'</td>'+
                 '<td colspan="2"></td>'+
                 '<td style="padding:8px 8px;text-align:right;color:#22d3ee;font-weight:700">'+fmtW(totIn)+'</td>'+
