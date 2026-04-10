@@ -3006,7 +3006,20 @@ function render() {
                 const badgeCls=status==='N'?'badge-new':status==='R'?'badge-re':'badge-cont';
                 const badgeTxt=status==='N'?'신규':status==='R'?'복귀':'기존';
                 const rowCls=(status==='N'||status==='R')?'new-row':'';
-                const mr=bg.inAmt>0?(bg.gp/bg.inAmt*100):0;
+                // 필터 적용 시 메인 행 금액도 해당 캠페인 기준으로 재계산
+                const normStMain=s=>String(s||'').trim()
+                  .replace(/^운영\s*중[\s\S]*$/,'운영 중').replace(/^운영\s*전[\s\S]*$/,'운영 전')
+                  .replace(/^마감[\s\S]*$/,'마감').replace(/^홀딩[\s\S]*$/,'홀딩');
+                const filteredCamps=portStatusFilter
+                  ? bg.camps.filter(d=>normStMain(d.campStatus)===portStatusFilter)
+                  : bg.camps;
+                const fInAmt=filteredCamps.reduce((s,d)=>s+(d.inAmt||0),0);
+                const fOutAmt=filteredCamps.reduce((s,d)=>s+(d.outAmt||0),0);
+                const fGP=filteredCamps.reduce((s,d)=>s+(d.gp||0),0);
+                const dispInAmt=portStatusFilter?fInAmt:bg.inAmt;
+                const dispOutAmt=portStatusFilter?fOutAmt:bg.outAmt;
+                const dispGP=portStatusFilter?fGP:bg.gp;
+                const mr=dispInAmt>0?(dispGP/dispInAmt*100):0;
                 const mc=mr>=30?'#4ade80':mr>=15?'#fbbf24':'#f87171';
                 const prevGP=prevGrp[bg.client+'__'+bg.brand];
                 const chg=prevGP!==undefined?bg.gp-prevGP:(status==='N'?'N':status==='R'?'R':null);
@@ -3036,7 +3049,9 @@ function render() {
                   if(d.campStatus) cg[k].campStatus=d.campStatus;
                   if(d.product) cg[k].product=d.product;
                 });
-                const campRows=Object.values(cg);
+                // 상태 필터 적용: 서브테이블도 해당 상태 캠페인만 표시
+                let campRows=Object.values(cg);
+                if(portStatusFilter) campRows=campRows.filter(d=>normStV2(d.campStatus)===portStatusFilter);
                 const hasMulti=campRows.length>1;
                 const showDetail=campRows.length>0;
                 const multiTag=hasMulti?' <span style="font-size:9px;background:#312e81;color:#a5b4fc;border:1px solid #4338ca;border-radius:8px;padding:1px 5px;font-weight:700;vertical-align:middle">+'+campRows.length+'</span>':'';
@@ -3045,9 +3060,9 @@ function render() {
                   '<td style="font-weight:500;color:#f8fafc;white-space:nowrap">'+bg.client+multiTag+arrowSpan+'</td>'+
                   '<td style="color:#94a3b8">'+bg.brand+'</td>'+
                   '<td><span class="badge '+badgeCls+'">'+badgeTxt+'</span></td>'+
-                  '<td style="text-align:right;color:#22d3ee">'+fmtW(bg.inAmt)+'</td>'+
-                  '<td style="text-align:right;color:#f87171">'+fmtW(bg.outAmt)+'</td>'+
-                  '<td style="text-align:right;color:'+(bg.gp>=0?'#e2e8f0':'#f87171')+';font-weight:600">'+fmtW(bg.gp)+'</td>'+
+                  '<td style="text-align:right;color:#22d3ee">'+fmtW(dispInAmt)+'</td>'+
+                  '<td style="text-align:right;color:#f87171">'+fmtW(dispOutAmt)+'</td>'+
+                  '<td style="text-align:right;color:'+(dispGP>=0?'#e2e8f0':'#f87171')+';font-weight:600">'+fmtW(dispGP)+'</td>'+
                   '<td style="text-align:right;color:'+mc+';font-weight:600">'+mr.toFixed(1)+'%</td>'+
                   '<td style="text-align:right">'+chgCol+'</td>'+
                   '<td>'+renderProdTags(bg.client,bg.brand,bg.squad,am?.year||'',am?.month||0)+'</td>'+
