@@ -2663,6 +2663,7 @@ let currentCsmSub = 'revenue';
 let campCsmFilter = 'all'; // 'all' or CSM name
 let cashflowSubTab = 'monthly';  // 현금흐름 서브탭: 'monthly','campaign'
 let expandedCampKey = null;      // 캠페인 탭 펼쳐진 행 키
+let portStatusFilter = null;     // 포트폴리오 캠페인 상태 필터 (null=전체)
 function render() {
   const data = processData(currentYear);
   const {monthly, waterfall, getPortfolio, getCSMData, getHeatmap, getProductAnalysis, getCSMCalendar, totalGP} = data;
@@ -2900,13 +2901,28 @@ function render() {
                 });
                 const total=seen.size;
                 if(!total) return '';
-                const parts=[
-                  cnt['운영 전']>0?'운영 전 <span style="color:#fbbf24">'+cnt['운영 전']+'개</span>':'',
-                  cnt['운영 중']>0?'운영 중 <span style="color:#4ade80">'+cnt['운영 중']+'개</span>':'',
-                  cnt['마감']>0?'마감 <span style="color:#64748b">'+cnt['마감']+'개</span>':'',
-                  cnt['홀딩']>0?'홀딩 <span style="color:#f87171">'+cnt['홀딩']+'개</span>':'',
-                ].filter(Boolean).join(' · ');
-                return '총 <span style="color:#cbd5e1;font-weight:600">'+total+'개 캠페인</span>'+(parts?' ('+parts+')':'');
+                const stConf={
+                  '운영 전':{co:'#f59e0b',act:'#92400e'},
+                  '운영 중':{co:'#4ade80',act:'#065f46'},
+                  '마감':   {co:'#94a3b8',act:'#334155'},
+                  '홀딩':   {co:'#f87171',act:'#7f1d1d'},
+                };
+                const mkBtn=(s)=>{
+                  if(!cnt[s]) return '';
+                  const cf=stConf[s];
+                  const isAct=portStatusFilter===s;
+                  return '<button onclick="setPortStatusFilter(\''+s+'\')" style="'+
+                    'background:'+(isAct?cf.act:'transparent')+';'+
+                    'border:1px solid '+(isAct?cf.co:'transparent')+';'+
+                    'color:'+cf.co+';font-size:11px;font-weight:600;'+
+                    'padding:1px 7px;border-radius:10px;cursor:pointer;'+
+                    'transition:all .15s">'+
+                    s+' <span style="font-weight:700">'+cnt[s]+'개</span>'+
+                  '</button>';
+                };
+                const parts=[mkBtn('운영 전'),mkBtn('운영 중'),mkBtn('마감'),mkBtn('홀딩')].filter(Boolean).join(' ');
+                const resetBtn=portStatusFilter?'<button onclick="setPortStatusFilter(null)" style="background:transparent;border:1px solid #334155;color:#64748b;font-size:10px;padding:1px 6px;border-radius:8px;cursor:pointer;margin-left:4px">✕ 전체</button>':'';
+                return '총 <span style="color:#cbd5e1;font-weight:600">'+total+'개 캠페인</span> '+parts+resetBtn;
               })()}
             </p>
           </div>
@@ -2976,7 +2992,14 @@ function render() {
               // status map from port.active (per client)
               const stMap={};
               port.active.forEach(c=>{stMap[c.name]=c.status;});
-              const grpList=Object.values(currGrp).sort((a,b)=>b.gp-a.gp);
+              let grpList=Object.values(currGrp).sort((a,b)=>b.gp-a.gp);
+              // 캠페인 상태 필터 적용
+              if(portStatusFilter){
+                const normSt=s=>String(s||'').trim()
+                  .replace(/^운영\s*중[\s\S]*$/,'운영 중').replace(/^운영\s*전[\s\S]*$/,'운영 전')
+                  .replace(/^마감[\s\S]*$/,'마감').replace(/^홀딩[\s\S]*$/,'홀딩');
+                grpList=grpList.filter(bg=>bg.camps.some(d=>normSt(d.campStatus)===portStatusFilter));
+              }
               return grpList.map((bg,bi)=>{
                 const eid='pd_'+bi;
                 const status=stMap[bg.client]||'C';
@@ -4146,6 +4169,7 @@ function setCsmSub(sub) { currentCsmSub=sub; render(); }
 function setCampCsmFilter(sq) { campCsmFilter=sq; render(); }
 function switchCashflowTab(t) { cashflowSubTab=t; expandedCampKey=null; render(); }
 function toggleCampRow(k) { expandedCampKey=(expandedCampKey===k)?null:k; render(); }
+function setPortStatusFilter(s) { portStatusFilter=(portStatusFilter===s)?null:s; render(); }
 function toggleCSM(idx) {
   const el = document.getElementById('csm-list-'+idx);
   if(el) el.classList.toggle('show');
