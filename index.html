@@ -1861,7 +1861,7 @@ function saveGasSecret(input) {
 }
 
 // ─── GAS POST: 캠페인 상태(L열) 업데이트 ──────────────────────────
-async function gasUpdateStatus(campaign, client, status) {
+async function gasUpdateStatus(campaign, client, status, brand, year, month, country, item) {
   if (!GAS_URL) {
     alert('GAS URL이 설정되지 않았습니다.\n설정 패널에서 GAS 프록시 URL을 입력해주세요.');
     return false;
@@ -1902,7 +1902,12 @@ async function gasUpdateStatus(campaign, client, status) {
       '&secret=' + encodeURIComponent(secret) +
       '&campaign=' + encodeURIComponent(campaign) +
       '&client=' + encodeURIComponent(client) +
-      '&status=' + encodeURIComponent(status);
+      '&status=' + encodeURIComponent(status) +
+      (brand   ? '&brand='   + encodeURIComponent(brand)   : '') +
+      (year    ? '&year='    + encodeURIComponent(year)    : '') +
+      (month   ? '&month='   + encodeURIComponent(month)   : '') +
+      (country ? '&country=' + encodeURIComponent(country) : '') +
+      (item    ? '&item='    + encodeURIComponent(item)    : '');
 
     const script = document.createElement('script');
     script.id = cbName;
@@ -1987,10 +1992,15 @@ async function openStatusEdit(uid, campaign, client, current, brand, year, month
       // 상태가 바뀌었으면 먼저 저장
       if (newVal !== v) {
         sel.disabled = true; sel.style.opacity = '0.5';
-        const ok = await gasUpdateStatus(campaign, client, newVal);
+        const ok = await gasUpdateStatus(campaign, client, newVal, brand, year, month, country, item);
         if (ok) {
           CAMPAIGN_DATA.forEach(d => {
-            if (String(d.campaign) === campaign && String(d.client) === client) d.campStatus = newVal;
+            if (String(d.campaign) === campaign && String(d.client) === client &&
+                (!brand   || String(d.brand||'')   === String(brand)) &&
+                (!year    || String(d.year||'')    === String(year)) &&
+                (!month   || String(d.month||'')   === String(month)) &&
+                (!country || String(d.country||'') === String(country)) &&
+                (!item    || String(d.item||'')    === String(item))) d.campStatus = newVal;
           });
         }
         sel.disabled = false; sel.style.opacity = '1';
@@ -2026,10 +2036,15 @@ async function openStatusEdit(uid, campaign, client, current, brand, year, month
     const newVal = sel.value;
     sel.disabled = true;
     sel.style.opacity = '0.5';
-    const ok = await gasUpdateStatus(campaign, client, newVal);
+    const ok = await gasUpdateStatus(campaign, client, newVal, brand, year, month, country, item);
     if (ok) {
       CAMPAIGN_DATA.forEach(d => {
-        if (String(d.campaign) === campaign && String(d.client) === client) d.campStatus = newVal;
+        if (String(d.campaign) === campaign && String(d.client) === client &&
+            (!brand   || String(d.brand||'')   === String(brand)) &&
+            (!year    || String(d.year||'')    === String(year)) &&
+            (!month   || String(d.month||'')   === String(month)) &&
+            (!country || String(d.country||'') === String(country)) &&
+            (!item    || String(d.item||'')    === String(item))) d.campStatus = newVal;
       });
       const m = smap[newVal] || {bg:'#1e293b',color:'#94a3b8',label:newVal};
       const extraArgs = hasExtra ? ',\''+esc2(brand)+'\',\''+esc2(String(year))+'\',\''+esc2(String(month))+'\',\''+esc2(product||'')+'\',\''+esc2(country||'')+'\',\''+esc2(item||'')+'\'' : '';
@@ -3832,7 +3847,7 @@ function render() {
             CAMPAIGN_DATA.forEach(d => {
               const sq = d.squad || '미지정';
               if (campCsmFilter !== 'all' && sq !== campCsmFilter) return;
-              const key = d.campaign + '||' + d.client;
+              const key = d.campaign + '||' + d.client + '||' + (d.brand||'') + '||' + (d.country||'') + '||' + (d.item||'');
               const yr2 = String(d.year||'').replace(/^20/,''); // "2026" → "26"
               const dYm = yr2 && d.month ? yr2+'/'+d.month : null; // "26/3" 형식
               if (!campByName[key]) campByName[key] = {campaign:d.campaign, client:d.client, brand:d.brand, product:d.product, country:d.country||'', item:d.item||'', squad:sq, campStatus:d.campStatus||'', recEnd:null, recStart:null, discStart:null, shipStart:null, contractEnd:null, tgtRec:0, gp:0, hasDates:false, recEndYm:null};
@@ -3900,7 +3915,7 @@ function render() {
             };
             // GAS 연동 시 상태 셀: 배지 기본, 클릭 → 드롭다운 수정
             const canEdit = !!GAS_URL && !!localStorage.getItem('tkcle_gas_secret');
-            const statusEditCell = (campaign, client, current) => {
+            const statusEditCell = (campaign, client, current, brand, country, item) => {
               const v = String(current||'').trim()
                 .replace(/^운영\s*중[\s\S]*$/, '운영 중')
                 .replace(/^운영\s*전[\s\S]*$/, '운영 전')
@@ -3908,16 +3923,18 @@ function render() {
                 .replace(/^홀딩[\s\S]*$/, '홀딩');
               if (!canEdit) return statusBadge(v);
               const uid = 'sb_' + Math.random().toString(36).slice(2, 9);
-              const esc = s => String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+              const esc = s => String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
               const smap = {
                 '운영 전': {bg:'#422006',color:'#fbbf24',label:'운영 전'},
                 '운영 중': {bg:'#14532d',color:'#4ade80',label:'운영 중'},
                 '마감':    {bg:'#1e293b',color:'#94a3b8',label:'마감'},
                 '홀딩':    {bg:'#3b1c1c',color:'#f87171',label:'홀딩'},
               };
-              if (!v) return '<span id="'+uid+'" style="color:#475569;font-size:10px;cursor:pointer" onclick="openStatusEdit(\''+uid+'\',\''+esc(campaign)+'\',\''+esc(client)+'\',\'\')">—</span>';
+              // brand/country/item을 openStatusEdit에 전달해 정밀 업데이트 가능하도록
+              const extraArgs = ',\''+esc(brand||'')+'\',\'\',\'\',\'\',\''+esc(country||'')+'\',\''+esc(item||'')+'\'';
+              if (!v) return '<span id="'+uid+'" style="color:#475569;font-size:10px;cursor:pointer" onclick="openStatusEdit(\''+uid+'\',\''+esc(campaign)+'\',\''+esc(client)+'\',\'\''+extraArgs+')">—</span>';
               const m = smap[v] || {bg:'#1e293b',color:'#94a3b8',label:v};
-              return '<span id="'+uid+'" style="display:inline-block;padding:2px 7px;border-radius:10px;background:'+m.bg+';color:'+m.color+';font-size:10px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent" onmouseenter="this.style.borderColor=\''+m.color+'44\'" onmouseleave="this.style.borderColor=\'transparent\'" onclick="openStatusEdit(\''+uid+'\',\''+esc(campaign)+'\',\''+esc(client)+'\',\''+esc(v)+'\')" title="클릭하여 수정">'+m.label+'</span>';
+              return '<span id="'+uid+'" style="display:inline-block;padding:2px 7px;border-radius:10px;background:'+m.bg+';color:'+m.color+';font-size:10px;font-weight:600;white-space:nowrap;cursor:pointer;border:1px solid transparent" onmouseenter="this.style.borderColor=\''+m.color+'44\'" onmouseleave="this.style.borderColor=\'transparent\'" onclick="openStatusEdit(\''+uid+'\',\''+esc(campaign)+'\',\''+esc(client)+'\',\''+esc(v)+'\''+extraArgs+')" title="클릭하여 수정">'+m.label+'</span>';
             };
             // noTL 전용: extra args(brand/year/month/product/country/item) 포함 → + 버튼 활성화
             const statusEditCellNoTL = (c) => {
@@ -3964,7 +3981,7 @@ function render() {
                   '<td style="padding:5px 6px;color:#64748b;font-size:10px">'+[c.country,c.item].filter(Boolean).join(' · ')+'</td>' +
                   '<td style="padding:5px 6px;color:#64748b">'+c.squad+'</td>' +
                   '<td style="padding:5px 6px;text-align:right;color:#f59e0b;font-weight:500">'+c.recEnd+'</td>' +
-                  '<td style="padding:5px 6px">'+statusEditCell(c.campaign, c.client, c.campStatus)+'</td>' +
+                  '<td style="padding:5px 6px">'+statusEditCell(c.campaign, c.client, c.campStatus, c.brand, c.country, c.item)+'</td>' +
                   '</tr>'
                 ).join('') +
                 '</tbody></table></div>';
