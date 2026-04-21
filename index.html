@@ -4345,7 +4345,7 @@ function render() {
           const outDelSum=outDelList.reduce((s,x)=>s+x.amt,0);
           const outSum=outInfluSum+outDelSum;
           let h='<tr><td colspan="5" style="padding:0;background:var(--bg-base);border-bottom:1px solid var(--border-strong)">';
-          h+='<div style="display:flex;flex-direction:column;gap:1px;background:var(--border-strong)">';
+          h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border-strong)">';
           // IN 패널 (풀 너비)
           h+='<div style="background:#0b1220;padding:14px 16px">';
           h+='<div style="font-size:12px;font-weight:600;color:#60a5fa;margin-bottom:8px">📥 유입 상세 ('+ym+') · 합계 '+fmt(inSum)+'</div>';
