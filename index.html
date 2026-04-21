@@ -4333,8 +4333,8 @@ function render() {
           DELIVERY_PAY_DATA.forEach(d => {
             const dym=d.issueDate?String(d.issueDate).slice(0,7):null;
             if (!dym||dym!==ym) return;
-            const key=(d.client||'').toLowerCase()+'|'+(d.brand||'').toLowerCase()+'|'+(d.settleType||'배송대행').toLowerCase();
-            if (!outDelMap[key]) outDelMap[key]={client:d.client||'',brand:d.brand||'',settle:d.settleType||'배송대행',amt:0,count:0};
+            const key=(d.client||'').toLowerCase()+'|'+(d.brand||'').toLowerCase()+'|'+(d.squad||'').toLowerCase()+'|'+(d.year||'')+'|'+(d.month||'')+'|'+(d.settleType||'배송대행').toLowerCase();
+            if (!outDelMap[key]) outDelMap[key]={client:d.client||'',brand:d.brand||'',csm:d.squad||'',year:d.year||'',month:d.month||'',settle:d.settleType||'배송대행',amt:0,count:0};
             outDelMap[key].amt+=d.taxAmtIn||0; outDelMap[key].count++;
           });
           const inList=Object.values(inMap).sort((a,b)=>b.vatIn-a.vatIn);
@@ -4345,30 +4345,30 @@ function render() {
           const outDelSum=outDelList.reduce((s,x)=>s+x.amt,0);
           const outSum=outInfluSum+outDelSum;
           let h='<tr><td colspan="5" style="padding:0;background:var(--bg-base);border-bottom:1px solid var(--border-strong)">';
-          h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border-strong)">';
-          // IN 패널
+          h+='<div style="display:flex;flex-direction:column;gap:1px;background:var(--border-strong)">';
+          // IN 패널 (풀 너비)
           h+='<div style="background:#0b1220;padding:14px 16px">';
           h+='<div style="font-size:12px;font-weight:600;color:#60a5fa;margin-bottom:8px">📥 유입 상세 ('+ym+') · 합계 '+fmt(inSum)+'</div>';
           if (!inList.length) { h+='<div style="color:#64748b;font-size:11px;padding:8px 0">해당 월 발행 내역 없음</div>'; }
           else {
-            h+='<table style="width:100%;font-size:11px;border-collapse:collapse"><thead><tr style="color:#64748b;border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px 4px">고객사</th><th style="text-align:left;padding:6px 4px">브랜드</th><th style="text-align:left;padding:6px 4px">CSM</th><th style="text-align:center;padding:6px 4px">년/월</th><th style="text-align:center;padding:6px 4px">정산구분</th><th style="text-align:right;padding:6px 4px">금액(VAT+)</th></tr></thead><tbody>';
+            h+='<table style="width:100%;font-size:11px;border-collapse:collapse"><thead><tr style="color:#64748b;border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px 4px">고객사</th><th style="text-align:left;padding:6px 4px">브랜드</th><th style="text-align:left;padding:6px 4px">CSM</th><th style="text-align:center;padding:6px 4px">연/월</th><th style="text-align:center;padding:6px 4px">정산구분</th><th style="text-align:right;padding:6px 4px">금액(VAT+)</th></tr></thead><tbody>';
             inList.forEach(x => {
-              h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 4px;color:#e2e8f0">'+x.client+'</td><td style="padding:6px 4px;color:#cbd5e1">'+x.brand+'</td><td style="padding:6px 4px;color:#cbd5e1">'+x.csm+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.year+'/'+x.month+'</td><td style="padding:6px 4px;text-align:center;color:#cbd5e1">'+(x.settle||'-')+'</td><td style="padding:6px 4px;text-align:right;color:#60a5fa;font-weight:600">'+fmt(x.vatIn)+'</td></tr>';
+              h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 4px;color:#e2e8f0">'+x.client+'</td><td style="padding:6px 4px;color:#cbd5e1">'+x.brand+'</td><td style="padding:6px 4px;color:#94a3b8">'+x.csm+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.year+'/'+(x.month||'')+'</td><td style="padding:6px 4px;text-align:center;color:#cbd5e1">'+(x.settle||'-')+'</td><td style="padding:6px 4px;text-align:right;color:#60a5fa;font-weight:600">'+fmt(x.vatIn)+'</td></tr>';
             });
             h+='</tbody></table>';
           }
           h+='</div>';
-          // OUT 패널 (인플정산 + 배송대행 통합)
+          // OUT 패널 (인플정산 + 배송대행 통합 — 풀 너비)
           h+='<div style="background:#0b1220;padding:14px 16px">';
           h+='<div style="font-size:12px;font-weight:600;color:#f87171;margin-bottom:8px">📤 유출 상세 ('+ym+') · 합계 '+fmt(outSum)+'</div>';
           if (!outInfluList.length && !outDelList.length) { h+='<div style="color:#64748b;font-size:11px;padding:8px 0">해당 월 지급 내역 없음</div>'; }
           else {
-            h+='<table style="width:100%;font-size:11px;border-collapse:collapse"><thead><tr style="color:#64748b;border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px 4px">구분</th><th style="text-align:left;padding:6px 4px">고객사</th><th style="text-align:left;padding:6px 4px">브랜드</th><th style="text-align:left;padding:6px 4px">CSM/정산</th><th style="text-align:right;padding:6px 4px">금액(KRW)</th><th style="text-align:center;padding:6px 4px">건수</th></tr></thead><tbody>';
+            h+='<table style="width:100%;font-size:11px;border-collapse:collapse"><thead><tr style="color:#64748b;border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px 4px">고객사</th><th style="text-align:left;padding:6px 4px">브랜드</th><th style="text-align:left;padding:6px 4px">CSM</th><th style="text-align:center;padding:6px 4px">연/월</th><th style="text-align:center;padding:6px 4px">정산구분</th><th style="text-align:right;padding:6px 4px">금액(KRW)</th><th style="text-align:center;padding:6px 4px">건수</th></tr></thead><tbody>';
             outInfluList.forEach(x => {
-              h+='<tr style="border-bottom:1px solid var(--border);background:rgba(245,158,11,0.04)"><td style="padding:6px 4px"><span style="background:rgba(245,158,11,0.15);color:#f59e0b;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:600">인플정산</span></td><td style="padding:6px 4px;color:#e2e8f0">'+x.client+'</td><td style="padding:6px 4px;color:#cbd5e1">'+x.brand+'</td><td style="padding:6px 4px;color:#94a3b8">'+x.csm+'</td><td style="padding:6px 4px;text-align:right;color:#f59e0b;font-weight:600">'+fmt(x.amt)+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.count+'</td></tr>';
+              h+='<tr style="border-bottom:1px solid var(--border);background:rgba(245,158,11,0.04)"><td style="padding:6px 4px;color:#e2e8f0">'+x.client+'</td><td style="padding:6px 4px;color:#cbd5e1">'+x.brand+'</td><td style="padding:6px 4px;color:#94a3b8">'+x.csm+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.year+'/'+(x.month||'')+'</td><td style="padding:6px 4px;text-align:center"><span style="background:rgba(245,158,11,0.15);color:#f59e0b;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:600">인플정산</span></td><td style="padding:6px 4px;text-align:right;color:#f59e0b;font-weight:600">'+fmt(x.amt)+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.count+'</td></tr>';
             });
             outDelList.forEach(x => {
-              h+='<tr style="border-bottom:1px solid var(--border);background:rgba(167,139,250,0.04)"><td style="padding:6px 4px"><span style="background:rgba(167,139,250,0.15);color:#a78bfa;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:600">배송대행</span></td><td style="padding:6px 4px;color:#e2e8f0">'+x.client+'</td><td style="padding:6px 4px;color:#cbd5e1">'+x.brand+'</td><td style="padding:6px 4px;color:#94a3b8">'+x.settle+'</td><td style="padding:6px 4px;text-align:right;color:#a78bfa;font-weight:600">'+fmt(x.amt)+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.count+'</td></tr>';
+              h+='<tr style="border-bottom:1px solid var(--border);background:rgba(167,139,250,0.04)"><td style="padding:6px 4px;color:#e2e8f0">'+x.client+'</td><td style="padding:6px 4px;color:#cbd5e1">'+x.brand+'</td><td style="padding:6px 4px;color:#94a3b8">'+x.csm+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.year+'/'+(x.month||'')+'</td><td style="padding:6px 4px;text-align:center"><span style="background:rgba(167,139,250,0.15);color:#a78bfa;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:600">배송대행</span></td><td style="padding:6px 4px;text-align:right;color:#a78bfa;font-weight:600">'+fmt(x.amt)+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.count+'</td></tr>';
             });
             h+='</tbody></table>';
           }
