@@ -686,18 +686,337 @@ let isLoading = false;
 let PRODUCT_MAP = {};
 let CAMPAIGN_DATA = []; // [{campaign, client, brand, product, squad, year, month, discStart, discEnd, shipStart, recStart, recEnd, contractEnd, tgtAccept, tgtShip, tgtRec, actualRecEnd}]
 const TAX_GID = 982424415; // 매출정산 시트 gid
+// GP변동이력 시트 GID (Apps Script 실행 후 "GP변동이력" 시트 GID를 입력)
+let HISTORY_GID = parseInt(localStorage.getItem('tkcle_history_gid')) || null;
+let HISTORY_SHEET_DATA = []; // [{detectedAt, fromDate, client, brand, year, month, type, prevGP, newGP, diff}]
 const DEFAULT_CASHFLOW_GID = 159763230; // cashflow 시트 gid
 // cashflow GID가 미설정이거나 구 시트 GID면 기본값으로 초기화
 if (!localStorage.getItem('tkcle_cashflow_gid')) {
   localStorage.setItem('tkcle_cashflow_gid', String(DEFAULT_CASHFLOW_GID));
 }
 let TAX_DATA = []; // [{ym, campaign, client, brand, squad, year, month, settleType, taxAmtEx, taxAmtIn, issueDate, invoiceInfo, payDueDate, paid}]
-let DELIVERY_PAY_DATA = []; // [{ym, campaign, client, brand, squad, year, month, settleType, taxAmtEx, taxAmtIn, issueDate, payDueDate, paid}] — 배송대행 지급
 const INFLU_PAY_GID = 1385383205; // 인플루언서 지급 시트 gid
 const FX_USD_TO_KRW = 1500;       // USD→KRW 환산용 고정 환율
 let INFLU_PAY_DATA = []; // [{date, ym, amt, client, brand, csm, year, month, usdOriginal, krwOriginal}]
 let expandedCashflowYm = null; // 현금흐름 탭에서 펼쳐진 월 (yyyy-mm)
 const CASHFLOW_START_YM = '2026-01'; // 현금흐름 탭 시작 월
+
+// ─── GP 변동이력 (데일리 스냅샷) ──────────────────────────────────────
+const DAILY_SNAP_KEY = 'tkcle_gp_daily_v2';
+const MAX_DAILY_SNAPS = 60; // 최대 60일치 보관
+let historyFilter = 'all'; // all / new / holding / resumed / changed / removed
+
+// RAW 데이터를 compact 형태로 변환 (용량 절약)
+// compact row: [client, brand, year, month, inAmt, gp]
+function rawToCompact(rawArr) {
+  return rawArr.map(r => [r[1], r[2], String(r[4]), Number(r[5]), Number(r[6])||0, Number(r[8])||0]);
+}
+
+// 데일리 스냅샷 저장 (하루에 한 번만)
+function saveSnapshot() {
+  if (dataSource !== 'sheets') return;
+  try {
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const store = loadSnapshotStore();
+    if (store[today]) return; // 오늘 이미 저장됨 → 스킵
+    store[today] = rawToCompact(RAW);
+    // 날짜 오름차순 정렬 후 MAX 초과분 제거
+    const dates = Object.keys(store).sort();
+    if (dates.length > MAX_DAILY_SNAPS) {
+      dates.slice(0, dates.length - MAX_DAILY_SNAPS).forEach(d => delete store[d]);
+    }
+    try {
+      localStorage.setItem(DAILY_SNAP_KEY, JSON.stringify(store));
+    } catch(e) {
+      // 용량 초과 시 오래된 절반 제거 후 재시도
+      const toKeep = dates.slice(Math.floor(dates.length / 2));
+      const trimmed = {};
+      toKeep.forEach(d => { trimmed[d] = store[d]; });
+      trimmed[today] = store[today];
+      localStorage.setItem(DAILY_SNAP_KEY, JSON.stringify(trimmed));
+    }
+  } catch(e) { console.warn('GP 스냅샷 저장 실패:', e); }
+}
+
+function loadSnapshotStore() {
+  try { return JSON.parse(localStorage.getItem(DAILY_SNAP_KEY) || '{}'); }
+  catch(e) { return {}; }
+}
+
+// 두 compact 데이터셋의 변동 감지
+function detectChanges(oldCompact, newCompact) {
+  // key: client||brand||year||month
+  const mk = r => r[0]+'||'+r[1]+'||'+r[2]+'||'+r[3];
+  const oldMap = {};
+  oldCompact.forEach(r => {
+    const k = mk(r);
+    if (!oldMap[k]) oldMap[k] = { gp: 0, inAmt: 0, client: r[0], brand: r[1], year: r[2], month: r[3] };
+    oldMap[k].gp    += r[5];
+    oldMap[k].inAmt += r[4];
+  });
+  const newMap = {};
+  newCompact.forEach(r => {
+    const k = mk(r);
+    if (!newMap[k]) newMap[k] = { gp: 0, inAmt: 0, client: r[0], brand: r[1], year: r[2], month: r[3] };
+    newMap[k].gp    += r[5];
+    newMap[k].inAmt += r[4];
+  });
+
+  const changes = [];
+  const THRESHOLD = 1000; // 1천원 미만 변동은 무시
+
+  // 신규 or 변동
+  for (const k of Object.keys(newMap)) {
+    const nv = newMap[k], ov = oldMap[k];
+    if (!ov) {
+      // 완전 신규 (0이 아닌 경우만)
+      if (nv.gp !== 0 || nv.inAmt !== 0) {
+        changes.push({ type: 'new', client: nv.client, brand: nv.brand,
+          year: nv.year, month: nv.month, prevGP: null, newGP: nv.gp,
+          prevIn: null, newIn: nv.inAmt });
+      }
+    } else {
+      const gpDiff = nv.gp - ov.gp;
+      if (Math.abs(gpDiff) >= THRESHOLD) {
+        let type = 'changed';
+        if (ov.gp > 0 && nv.gp === 0)  type = 'holding';
+        else if (ov.gp === 0 && nv.gp > 0) type = 'resumed';
+        changes.push({ type, client: nv.client, brand: nv.brand,
+          year: nv.year, month: nv.month, prevGP: ov.gp, newGP: nv.gp,
+          prevIn: ov.inAmt, newIn: nv.inAmt });
+      }
+    }
+  }
+  // 삭제된 행
+  for (const k of Object.keys(oldMap)) {
+    if (!newMap[k]) {
+      const ov = oldMap[k];
+      if (ov.gp !== 0 || ov.inAmt !== 0) {
+        changes.push({ type: 'removed', client: ov.client, brand: ov.brand,
+          year: ov.year, month: ov.month, prevGP: ov.gp, newGP: null,
+          prevIn: ov.inAmt, newIn: null });
+      }
+    }
+  }
+  return changes;
+}
+
+// 날짜 포맷 헬퍼
+function fmtDate(isoDate) {
+  const [y, m, d] = isoDate.split('-');
+  return y + '년 ' + parseInt(m) + '월 ' + parseInt(d) + '일';
+}
+
+// ─── GP변동이력 시트 파서 ─────────────────────────────────────────
+// 컬럼: 감지일자(0) | 기준일(이전)(1) | 고객사(2) | 브랜드(3) | 대상연도(4) | 대상월(5) | 변동유형(6) | 이전GP(7) | 변경GP(8) | 변동액(9)
+function parseHistorySheetResponse(response) {
+  try {
+    const table = response.table;
+    if (!table || !table.rows) return [];
+    const data = [];
+    const dateStr = (v) => {
+      if (!v) return '';
+      const s = String(v);
+      if (s.match(/^Date\(/)) {
+        const m = s.match(/Date\((\d+),(\d+),(\d+)\)/);
+        if (m) return m[1]+'-'+String(+m[2]+1).padStart(2,'0')+'-'+String(+m[3]).padStart(2,'0');
+      }
+      return s.length >= 10 ? s.slice(0,10) : s;
+    };
+    const numVal = (v) => v !== null && v !== undefined && v !== '' ? (parseFloat(String(v).replace(/[₩,\s]/g,'')) || 0) : null;
+    for (const row of table.rows) {
+      const c = row.c;
+      if (!c) continue;
+      const val = (i) => c[i] ? (c[i].v !== null && c[i].v !== undefined ? c[i].v : (c[i].f || '')) : '';
+      const detectedAt = dateStr(val(0));
+      const fromDate   = dateStr(val(1));
+      const client     = String(val(2)).trim();
+      const brand      = String(val(3)).trim();
+      const year       = String(val(4)).replace(/['"]/g,'').trim();
+      const month      = parseInt(val(5));
+      const type       = String(val(6)).trim();
+      const prevGP     = numVal(val(7));
+      const newGP      = numVal(val(8));
+      const diff       = numVal(val(9));
+      if (!client || !detectedAt) continue;
+      data.push({ detectedAt, fromDate, client, brand, year, month, type, prevGP, newGP, diff });
+    }
+    if (typeof dbg === 'function') dbg('✅ GP변동이력 파싱: '+data.length+'건');
+    return data;
+  } catch(e) {
+    if (typeof dbg === 'function') dbg('❌ GP변동이력 파싱 오류: '+e.message);
+    return [];
+  }
+}
+
+function setHistoryFilter(f) { historyFilter = f; render(); }
+
+function saveHistoryGid() {
+  const el = document.getElementById('histGidInput');
+  if (!el) return;
+  const val = parseInt(el.value.trim());
+  if (isNaN(val)) { alert('숫자로 된 GID를 입력해주세요 (예: 1234567890)'); return; }
+  HISTORY_GID = val;
+  localStorage.setItem('tkcle_history_gid', String(val));
+  loadData(true);
+}
+
+function clearSnapshots() {
+  if (!confirm('변동이력을 모두 초기화할까요?\n(현재까지 저장된 스냅샷이 모두 삭제됩니다)')) return;
+  localStorage.removeItem(DAILY_SNAP_KEY);
+  historyFilter = 'all';
+  render();
+}
+
+// ─── GP 변동이력 타임라인 차트 ─────────────────────────────────────
+let _gpHistoryChartInst = null;
+window._gpHistSelectedDate = null;
+
+function fmtGPLabel(v) {
+  const abs = Math.abs(v);
+  const sign = v >= 0 ? '+' : '-';
+  if (abs >= 100000000) return sign + (abs / 100000000).toFixed(1).replace(/\.0$/, '') + '억';
+  if (abs >= 10000000)  return sign + Math.round(abs / 10000000) + '천만';
+  if (abs >= 10000)     return sign + Math.round(abs / 10000) + '만';
+  return sign + abs.toLocaleString();
+}
+
+function renderGPHistoryChart() {
+  const canvas = document.getElementById('gpHistoryChart');
+  if (!canvas || !HISTORY_SHEET_DATA || HISTORY_SHEET_DATA.length === 0) return;
+
+  // 날짜별 pos / neg 합계 계산 (오름차순)
+  const byDate = {};
+  HISTORY_SHEET_DATA.forEach(r => {
+    const d = r.detectedAt;
+    if (!byDate[d]) byDate[d] = { pos: 0, neg: 0 };
+    const diff = Number(r.diff) || 0;
+    if (diff > 0) byDate[d].pos += diff;
+    else if (diff < 0) byDate[d].neg += diff;
+  });
+  const dates = Object.keys(byDate).sort(); // oldest → newest (left → right)
+  const posData = dates.map(d => byDate[d].pos || null);
+  const negData = dates.map(d => byDate[d].neg || null);
+  const labels  = dates.map(d => {
+    const p = d.split('-');
+    return (p[1] || '') + '/' + (p[2] || '');
+  });
+
+  // 기존 인스턴스 파기
+  if (_gpHistoryChartInst) { try { _gpHistoryChartInst.destroy(); } catch(e){} _gpHistoryChartInst = null; }
+
+  // 바 위/아래 레이블 커스텀 플러그인
+  const datalabelsPlugin = {
+    id: 'gpHistLabels',
+    afterDatasetsDraw(chart) {
+      const ctx = chart.ctx;
+      chart.data.datasets.forEach((ds, dsIdx) => {
+        const meta = chart.getDatasetMeta(dsIdx);
+        if (meta.hidden) return;
+        meta.data.forEach((bar, i) => {
+          const val = ds.data[i];
+          if (!val || Math.abs(val) < 1) return;
+          const lbl = fmtGPLabel(val);
+          ctx.save();
+          ctx.font = '600 9.5px Inter, -apple-system, sans-serif';
+          ctx.fillStyle = val > 0 ? '#6ee7b7' : '#fca5a5';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = val > 0 ? 'bottom' : 'top';
+          ctx.fillText(lbl, bar.x, val > 0 ? bar.y - 3 : bar.y + 3);
+          ctx.restore();
+        });
+      });
+    }
+  };
+
+  _gpHistoryChartInst = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'GP 증가',
+          data: posData,
+          backgroundColor: 'rgba(16,185,129,0.72)',
+          borderColor: 'rgba(16,185,129,0.95)',
+          borderWidth: 1,
+          borderRadius: 4,
+          borderSkipped: 'bottom',
+          stack: 'gp'
+        },
+        {
+          label: 'GP 감소',
+          data: negData,
+          backgroundColor: 'rgba(239,68,68,0.65)',
+          borderColor: 'rgba(239,68,68,0.9)',
+          borderWidth: 1,
+          borderRadius: 4,
+          borderSkipped: 'top',
+          stack: 'gp'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      onClick: (evt, elements) => {
+        if (!elements.length) return;
+        const idx = elements[0].index;
+        const date = dates[idx];
+        window._gpHistSelectedDate = date;
+        const el = document.getElementById('hist-date-' + date);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // 선택 강조 업데이트 (차트 바 색상)
+        _gpHistoryChartInst.data.datasets[0].backgroundColor = dates.map((d,i) =>
+          i === idx ? 'rgba(16,185,129,1)' : 'rgba(16,185,129,0.55)');
+        _gpHistoryChartInst.data.datasets[1].backgroundColor = dates.map((d,i) =>
+          i === idx ? 'rgba(239,68,68,0.9)' : 'rgba(239,68,68,0.45)');
+        _gpHistoryChartInst.update('none');
+      },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: { color: '#64748b', font: { size: 11 }, boxWidth: 10, padding: 14, usePointStyle: true }
+        },
+        tooltip: {
+          callbacks: {
+            title: (items) => {
+              const i = items[0].dataIndex;
+              return fmtDate(dates[i]) + ' 감지';
+            },
+            label: (ctx) => {
+              const v = ctx.raw;
+              if (!v) return null;
+              return ctx.dataset.label + ': ' + fmtGPLabel(v);
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: { color: '#475569', font: { size: 10 }, maxRotation: 0 },
+          grid: { display: false },
+          border: { display: false }
+        },
+        y: {
+          stacked: true,
+          ticks: {
+            callback: v => v === 0 ? '0' : fmtGPLabel(v),
+            color: '#475569', font: { size: 10 }, maxTicksLimit: 6
+          },
+          grid: {
+            color: ctx => ctx.tick.value === 0 ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.04)',
+            lineWidth: ctx => ctx.tick.value === 0 ? 1.5 : 1
+          },
+          border: { display: false }
+        }
+      }
+    },
+    plugins: [datalabelsPlugin]
+  });
+}
 // ─── Google gviz 기본 응답 핸들러 (JSONP 에러 캐치용) ────────────
 // Google의 gviz API는 에러 발생 시 tqx=responseHandler를 무시하고
 // google.visualization.Query.setResponse()를 호출함 → 이를 캐치
@@ -1111,8 +1430,7 @@ function parseSettlementResponse(response) {
   try {
     const table = response.table;
     const cols = table.cols || [];
-    const data = [];         // 수취 데이터 (세발여부=TRUE, 배송대행 제외)
-    const deliveryData = []; // 배송대행 유출 데이터
+    const data = [];
     // Find columns by header
     const iYM = findColIndex(cols, ['연월']);
     const iCamp = findColIndex(cols, ['품목명', '품목']);
@@ -1181,22 +1499,14 @@ function parseSettlementResponse(response) {
       const paidRaw = iPaid >= 0 ? val(iPaid) : '';
       const paid = paidRaw === true || paidRaw === 'TRUE' || paidRaw === 'true' || paidRaw === '1' || paidRaw === 1;
       if (!client) continue;
-
-      // ── 배송대행: 유출로 분류 (invoiceInfo 무관) ──
-      if (settleType === '배송대행') {
-        if (taxAmtIn === 0 && taxAmtEx === 0) continue;
-        deliveryData.push({ym, campaign, client, brand, squad, year, month, settleType, taxAmtEx, taxAmtIn, issueDate, payDueDate, paid});
-        continue; // 수취 배열에는 넣지 않음
-      }
-
-      // ── 일반 수취: 세발여부=TRUE인 행만 ──
+      // 세발여부(O열)=TRUE인 행만 수취 현금흐름으로 인식
       if (!invoiceInfo) continue;
       // VAT포함 세발금액(M열) 또는 발행기준일(N열) 중 하나는 있어야 의미있는 행
       if (taxAmtIn === 0 && !issueDate) continue;
       data.push({ym, campaign, client, brand, squad, year, month, settleType, taxAmtEx, taxAmtIn, issueDate, invoiceInfo, payDueDate, paid});
     }
-    if (typeof dbg === 'function') dbg('✅ 매출정산 파싱: 수취 '+data.length+'건 / 배송대행 '+deliveryData.length+'건');
-    return { taxData: data, deliveryData };
+    if (typeof dbg === 'function') dbg('✅ 매출정산 파싱: '+data.length+'건');
+    return data;
   } catch(e) {
     if (typeof dbg === 'function') dbg('❌ 매출정산 parse error: '+e.message);
     return null;
@@ -1717,6 +2027,7 @@ async function loadData(showStatus) {
     dataSource = 'sheets';
     lastUpdateTime = new Date();
     rebuildGlobals();
+    saveSnapshot(); // 데일리 스냅샷 저장 (하루에 한 번만)
     render();
   }
   if (sheetId) {
@@ -1762,7 +2073,7 @@ async function loadData(showStatus) {
         RAW.length = 0; csvData.forEach(r => RAW.push(r));
         dataSource = 'sheets'; lastUpdateTime = new Date();
         dbg('✅ CSV → '+csvData.length+'행 로드 성공');
-        rebuildGlobals(); render(); mainLoaded = true;
+        rebuildGlobals(); saveSnapshot(); render(); mainLoaded = true;
       } else { dbg('❌ CSV 메인 로드 실패'); }
     }
     // 2+3) 상품 데이터 + 매출정산 병렬 로드
@@ -1783,16 +2094,10 @@ async function loadData(showStatus) {
       jobs.push(
         loadJSONP(taxUrl, 15000).then(rawTaxResp => {
           if (rawTaxResp && rawTaxResp.table) {
-            const result = parseSettlementResponse(rawTaxResp);
-            if (result) {
-              if (result.taxData && result.taxData.length > 0) {
-                TAX_DATA = result.taxData;
-                dbg('✅ 수취 데이터 '+TAX_DATA.length+'건 로드');
-              } else { dbg('⚠️ 수취 데이터 없음'); }
-              if (result.deliveryData && result.deliveryData.length > 0) {
-                DELIVERY_PAY_DATA = result.deliveryData;
-                dbg('✅ 배송대행 지급 '+DELIVERY_PAY_DATA.length+'건 로드');
-              }
+            const taxData = parseSettlementResponse(rawTaxResp);
+            if (taxData && taxData.length > 0) {
+              TAX_DATA = taxData;
+              dbg('✅ 세금계산서 데이터 '+TAX_DATA.length+'건 로드');
               render();
             } else { dbg('⚠️ 매출정산 파싱 결과 없음'); }
           } else { dbg('⚠️ 매출정산 JSONP 실패 → 스킵'); }
@@ -1813,6 +2118,26 @@ async function loadData(showStatus) {
           } else { dbg('⚠️ 인플 지급 JSONP 실패 → 스킵'); }
         })
       );
+
+      // ── 5) GP변동이력 시트 로드 (GID가 설정된 경우)
+      if (HISTORY_GID) {
+        dbg('── 5) GP변동이력 시트(gid='+HISTORY_GID+') 병렬 로드');
+        const histUrl = 'https://docs.google.com/spreadsheets/d/'+sheetId+'/gviz/tq?gid='+HISTORY_GID+'&_='+Date.now();
+        jobs.push(
+          loadJSONP(histUrl, 15000).then(rawHistResp => {
+            if (rawHistResp && rawHistResp.table) {
+              const histData = parseHistorySheetResponse(rawHistResp);
+              if (histData && histData.length > 0) {
+                HISTORY_SHEET_DATA = histData;
+                dbg('✅ GP변동이력 '+HISTORY_SHEET_DATA.length+'건 로드');
+                render();
+              } else { dbg('⚠️ GP변동이력 파싱 결과 없음 (시트 비어있을 수 있음)'); }
+            } else { dbg('⚠️ GP변동이력 JSONP 실패 → 스킵'); }
+          })
+        );
+      } else {
+        dbg('── 5) GP변동이력 GID 미설정 → 스킵 (대시보드 설정에서 입력 가능)');
+      }
 
       await Promise.all(jobs);
     }
@@ -3274,6 +3599,7 @@ function render() {
       <button class="tab-btn ${currentTab==='csm'?'active':''}" onclick="switchTab('csm')">👤 CSM별 현황</button>
       <button class="tab-btn ${currentTab==='product'?'active':''}" onclick="switchTab('product')">📦 상품별 현황</button>
       <button class="tab-btn ${currentTab==='cashflow'?'active':''}" onclick="switchTab('cashflow')">💰 현금흐름</button>
+      <button class="tab-btn ${currentTab==='history'?'active':''}" onclick="switchTab('history')">📊 GP 변동이력</button>
     </div>
     <!-- TAB: Overview -->
     <div class="tab-content ${currentTab==='overview'?'active':''}" id="tab-overview">
@@ -4100,8 +4426,7 @@ function render() {
     <div class="tab-content ${currentTab==='cashflow'?'active':''}" id="tab-cashflow">
       ${(() => {
         const hasIn  = TAX_DATA && TAX_DATA.length > 0;
-        const hasOut = (INFLU_PAY_DATA && INFLU_PAY_DATA.length > 0) || (DELIVERY_PAY_DATA && DELIVERY_PAY_DATA.length > 0);
-        const hasDelivery = DELIVERY_PAY_DATA && DELIVERY_PAY_DATA.length > 0;
+        const hasOut = INFLU_PAY_DATA && INFLU_PAY_DATA.length > 0;
         const hasCamp = CAMPAIGN_DATA && CAMPAIGN_DATA.length > 0;
         if (!hasIn && !hasOut && !hasCamp) {
           return '<div class="card"><p style="text-align:center;padding:40px;color:#94a3b8">현금흐름 데이터를 불러오는 중입니다...<br><span style="font-size:12px">매출정산 시트의 발행기준일과 인플 지급 시트(gid='+INFLU_PAY_GID+')의 지급일자가 필요합니다.</span></p></div>';
@@ -4129,7 +4454,7 @@ function render() {
         const headerHTML = '<div class="card" style="margin-bottom:12px;padding:12px 16px">'+
           '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'+
             '<div><h2 style="margin-bottom:2px;font-size:15px">💸 현금흐름</h2>'+
-            '<p style="color:#64748b;font-size:11px">매출 세발 발행기준 유입 · 인플정산 + 배송대행 지급 기준 유출</p></div>'+
+            '<p style="color:#64748b;font-size:11px">매출 세발 발행기준 유입 · 인플 지급일자 기준 유출</p></div>'+
             '<div style="display:flex;gap:2px;background:#0a1628;border-radius:8px;padding:3px">'+subBtns+'</div>'+
           '</div></div>';
         // ══ 캠페인별 탭 ══
@@ -4157,18 +4482,8 @@ function render() {
           if (hasOut) INFLU_PAY_DATA.forEach(p => {
             if (!p.ym || !matchYear(p.ym)) return;
             const k = normKey(p.client, p.brand);
-            if (!cg[k]) { cg[k]={key:k,inAmt:0,outAmt:0,outInflu:0,outDelivery:0}; cgLabels[k]={client:(p.client||'').trim(), brand:(p.brand||'').trim()}; }
+            if (!cg[k]) { cg[k]={key:k,inAmt:0,outAmt:0}; cgLabels[k]={client:(p.client||'').trim(), brand:(p.brand||'').trim()}; }
             cg[k].outAmt += (p.amt||0);
-            cg[k].outInflu = (cg[k].outInflu||0) + (p.amt||0);
-          });
-          // 지급: DELIVERY_PAY_DATA (배송대행, 발행기준일 기준)
-          if (hasDelivery) DELIVERY_PAY_DATA.forEach(d => {
-            const ym = d.issueDate ? String(d.issueDate).slice(0,7) : null;
-            if (!ym || !matchYear(ym)) return;
-            const k = normKey(d.client, d.brand);
-            if (!cg[k]) { cg[k]={key:k,inAmt:0,outAmt:0,outInflu:0,outDelivery:0}; cgLabels[k]={client:(d.client||'').trim(), brand:(d.brand||'').trim()}; }
-            cg[k].outAmt += (d.taxAmtIn||0);
-            cg[k].outDelivery = (cg[k].outDelivery||0) + (d.taxAmtIn||0);
           });
           // 표시용 레이블 합치기
           Object.keys(cg).forEach(k => { cg[k].client=cgLabels[k]?.client||''; cg[k].brand=cgLabels[k]?.brand||''; });
@@ -4180,9 +4495,9 @@ function render() {
           });
           const tIn=cl.reduce((s,c)=>s+c.inAmt,0), tOut=cl.reduce((s,c)=>s+c.outAmt,0), tNet=tIn-tOut;
           const tMr = tIn>0?((tIn-tOut)/tIn*100):0;
-          // ── 연월별 상세 빌더 (TAX_DATA 수취 + INFLU_PAY_DATA 인플정산 + DELIVERY_PAY_DATA 배송대행) ──
+          // ── 연월별 상세 빌더 (TAX_DATA 수취 + INFLU_PAY_DATA 지급) ──
           const buildCampDetail = (client, brand, rowKey) => {
-            const mIn={}, mOutInflu={}, mOutDelivery={};
+            const mIn={}, mOut={};
             const clL=(client||'').toLowerCase(), brL=(brand||'').toLowerCase();
             if (hasIn) TAX_DATA.forEach(d => {
               if (!d.issueDate) return;
@@ -4191,50 +4506,42 @@ function render() {
               if (!ym||ym.length!==7||!matchYear(ym)) return;
               mIn[ym]=(mIn[ym]||0)+(d.taxAmtIn||0);
             });
-            INFLU_PAY_DATA.forEach(p => {
+            if (hasOut) INFLU_PAY_DATA.forEach(p => {
               if (!p.ym||!matchYear(p.ym)) return;
               if ((p.client||'').trim().toLowerCase()!==clL||(p.brand||'').trim().toLowerCase()!==brL) return;
-              mOutInflu[p.ym]=(mOutInflu[p.ym]||0)+(p.amt||0);
+              mOut[p.ym]=(mOut[p.ym]||0)+(p.amt||0);
             });
-            DELIVERY_PAY_DATA.forEach(d => {
-              const ym=d.issueDate?String(d.issueDate).slice(0,7):null;
-              if (!ym||!matchYear(ym)) return;
-              if ((d.client||'').trim().toLowerCase()!==clL||(d.brand||'').trim().toLowerCase()!==brL) return;
-              mOutDelivery[ym]=(mOutDelivery[ym]||0)+(d.taxAmtIn||0);
-            });
-            const allYms=[...new Set([...Object.keys(mIn),...Object.keys(mOutInflu),...Object.keys(mOutDelivery)])].sort();
+            const allYms=[...new Set([...Object.keys(mIn),...Object.keys(mOut)])].sort();
             let dh='<tr id="camp-detail-'+rowKey.replace(/[^a-z0-9]/gi,'_')+'"><td colspan="5" style="padding:0;background:#040c18;border-left:4px solid #0ea5e9;border-bottom:1px solid var(--border)">';
             dh+='<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:var(--bg-card);border-bottom:1px solid var(--border-strong)">';
             dh+='<th style="padding:5px 8px 5px 20px;text-align:left;color:#38bdf8;font-size:10px;font-weight:600;letter-spacing:.4px">연월</th>';
-            dh+='<th style="padding:5px 8px;text-align:right;color:#60a5fa;font-size:10px;font-weight:600">수취 (발행일 기준)</th>';
-            dh+='<th style="padding:5px 8px;text-align:right;color:#f59e0b;font-size:10px;font-weight:600">인플정산 지급</th>';
-            dh+='<th style="padding:5px 8px;text-align:right;color:#a78bfa;font-size:10px;font-weight:600">배송대행 지급</th>';
-            dh+='<th style="padding:5px 8px;text-align:right;color:#38bdf8;font-size:10px;font-weight:600">순현금 (수취-지급)</th>';
+            dh+='<th style="padding:5px 8px;text-align:right;color:#38bdf8;font-size:10px;font-weight:600">수취 (발행일 기준)</th>';
+            dh+='<th style="padding:5px 8px;text-align:right;color:#38bdf8;font-size:10px;font-weight:600">지급 (지급일 기준)</th>';
+            dh+='<th style="padding:5px 8px;text-align:right;color:#38bdf8;font-size:10px;font-weight:600">총이익 (수취-지급)</th>';
             dh+='</tr></thead><tbody>';
             if (!allYms.length) {
-              dh+='<tr><td colspan="5" style="padding:12px 20px;color:#475569;font-size:11px">연월별 상세 데이터 없음 (TAX/지급 시트 미연동)</td></tr>';
+              dh+='<tr><td colspan="4" style="padding:12px 20px;color:#475569;font-size:11px">연월별 상세 데이터 없음 (TAX/지급 시트 미연동)</td></tr>';
             } else {
+              let cumRow=0;
               allYms.forEach((ym,i)=>{
-                const inn=mIn[ym]||0, outInflu=mOutInflu[ym]||0, outDel=mOutDelivery[ym]||0;
-                const net=inn-outInflu-outDel;
+                const inn=mIn[ym]||0, out=mOut[ym]||0, net=inn-out;
+                cumRow+=net;
                 const rowBg=i%2===0?'background:var(--bg-surface)':'background:var(--bg-base)';
                 dh+='<tr style="border-top:1px solid #0d1b2e;'+rowBg+'">';
                 dh+='<td style="padding:5px 8px 5px 20px;color:#94a3b8;font-weight:500">'+ym+'</td>';
                 dh+='<td style="padding:5px 8px;text-align:right;color:#60a5fa">'+(inn>0?fmt(inn):'<span style="color:var(--text-3)">—</span>')+'</td>';
-                dh+='<td style="padding:5px 8px;text-align:right;color:#f59e0b">'+(outInflu>0?fmt(outInflu):'<span style="color:var(--text-3)">—</span>')+'</td>';
-                dh+='<td style="padding:5px 8px;text-align:right;color:#a78bfa">'+(outDel>0?fmt(outDel):'<span style="color:var(--text-3)">—</span>')+'</td>';
+                dh+='<td style="padding:5px 8px;text-align:right;color:#f87171">'+(out>0?fmt(out):'<span style="color:var(--text-3)">—</span>')+'</td>';
                 dh+='<td style="padding:5px 8px;text-align:right;font-weight:600;color:'+colorNet(net)+'">'+fmtSigned(net)+'</td>';
                 dh+='</tr>';
               });
+              // 소계
               const subIn=Object.values(mIn).reduce((s,v)=>s+v,0);
-              const subOutInflu=Object.values(mOutInflu).reduce((s,v)=>s+v,0);
-              const subOutDel=Object.values(mOutDelivery).reduce((s,v)=>s+v,0);
-              const subNet=subIn-subOutInflu-subOutDel;
+              const subOut=Object.values(mOut).reduce((s,v)=>s+v,0);
+              const subNet=subIn-subOut;
               dh+='<tr style="border-top:2px solid var(--border-strong);background:var(--bg-card)">';
               dh+='<td style="padding:5px 8px 5px 20px;color:#64748b;font-size:10px">소계</td>';
               dh+='<td style="padding:5px 8px;text-align:right;color:#93c5fd;font-weight:600">'+fmt(subIn)+'</td>';
-              dh+='<td style="padding:5px 8px;text-align:right;color:#fbbf24;font-weight:600">'+fmt(subOutInflu)+'</td>';
-              dh+='<td style="padding:5px 8px;text-align:right;color:#c4b5fd;font-weight:600">'+fmt(subOutDel)+'</td>';
+              dh+='<td style="padding:5px 8px;text-align:right;color:#fca5a5;font-weight:600">'+fmt(subOut)+'</td>';
               dh+='<td style="padding:5px 8px;text-align:right;font-weight:700;color:'+colorNet(subNet)+'">'+fmtSigned(subNet)+'</td>';
               dh+='</tr>';
             }
@@ -4244,8 +4551,7 @@ function render() {
           let ch = '';
           ch += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">';
           ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유입(수취)</div><div style="font-size:22px;font-weight:700;color:#60a5fa">'+fmt(tIn)+'</div><div style="font-size:10px;color:#475569;margin-top:2px">[정산]거래처 세발 발행기준</div></div>';
-          const tInfluOut=cl.reduce((s,c)=>s+(c.outInflu||0),0), tDelOut=cl.reduce((s,c)=>s+(c.outDelivery||0),0);
-          ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유출(지급)</div><div style="font-size:22px;font-weight:700;color:#f87171">'+fmt(tOut)+'</div><div style="font-size:10px;color:#475569;margin-top:2px">인플정산 '+fmt(tInfluOut)+' · 배송대행 '+fmt(tDelOut)+'</div></div>';
+          ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유출(지급)</div><div style="font-size:22px;font-weight:700;color:#f87171">'+fmt(tOut)+'</div><div style="font-size:10px;color:#475569;margin-top:2px">[정산]인플 지급일자 기준</div></div>';
           ch += '<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">순현금</div><div style="font-size:22px;font-weight:700;color:'+colorNet(tNet)+'">'+fmtSigned(tNet)+'</div><div style="font-size:10px;color:#475569;margin-top:2px">수취 - 지급</div></div>';
           ch += '</div>';
           ch += '<div class="card"><div style="font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:4px">캠페인별 현금흐름 <span style="font-size:11px;color:#64748b;font-weight:400">· [정산]거래처 세발기준 수취 · [정산]인플 지급일자 기준 · 총 '+cl.length+'건</span></div>';
@@ -4283,32 +4589,23 @@ function render() {
         }
         // ══ 월별 탭 ══
         const months = {};
-        const bump = (ym, key, amt) => { if (!months[ym]) months[ym]={in:0,out:0,outInflu:0,outDelivery:0}; months[ym][key]=(months[ym][key]||0)+amt; };
+        const bump = (ym, key, amt) => { if (!months[ym]) months[ym]={in:0,out:0}; months[ym][key]+=amt; };
         if (hasIn) TAX_DATA.forEach(d => {
           if (!d.issueDate) return;
           const ym = String(d.issueDate).slice(0,7);
           if (!ym || ym.length!==7 || !matchYear(ym)) return;
           bump(ym,'in',d.taxAmtIn||0);
         });
-        INFLU_PAY_DATA.forEach(p => {
+        if (hasOut) INFLU_PAY_DATA.forEach(p => {
           if (!p.ym || !matchYear(p.ym)) return;
           bump(p.ym,'out',p.amt);
-          bump(p.ym,'outInflu',p.amt);
-        });
-        DELIVERY_PAY_DATA.forEach(d => {
-          const ym = d.issueDate ? String(d.issueDate).slice(0,7) : null;
-          if (!ym || ym.length!==7 || !matchYear(ym)) return;
-          bump(ym,'out',d.taxAmtIn||0);
-          bump(ym,'outDelivery',d.taxAmtIn||0);
         });
         const sortedYms = Object.keys(months).sort();
         let cum = 0;
         const rows = sortedYms.map(ym => {
-          const inn=months[ym].in, out=months[ym].out;
-          const outInflu=months[ym].outInflu||0, outDelivery=months[ym].outDelivery||0;
-          const net=inn-out;
+          const inn=months[ym].in, out=months[ym].out, net=inn-out;
           cum += net;
-          return {ym, inn, out, outInflu, outDelivery, net, cum};
+          return {ym, inn, out, net, cum};
         });
         const totalIn=rows.reduce((s,r)=>s+r.inn,0), totalOut=rows.reduce((s,r)=>s+r.out,0), totalNet=totalIn-totalOut;
         // 펼침 상세
@@ -4320,55 +4617,38 @@ function render() {
             if (!inMap[key]) inMap[key]={client:d.client||'',brand:d.brand||'',csm:d.squad||'',year:d.year||'',month:d.month||'',settle:d.settleType||'',vatIn:0};
             inMap[key].vatIn += d.taxAmtIn||0;
           });
-          // 인플정산 유출
-          const outInfluMap={};
+          const outMap={};
           INFLU_PAY_DATA.forEach(p => {
             if (p.ym!==ym) return;
             const key=(p.client||'').toLowerCase()+'|'+(p.brand||'').toLowerCase()+'|'+(p.csm||'').toLowerCase()+'|'+(p.year||'')+'|'+(p.month||'');
-            if (!outInfluMap[key]) outInfluMap[key]={client:p.client||'',brand:p.brand||'',csm:p.csm||'',year:p.year||'',month:p.month||'',amt:0,count:0};
-            outInfluMap[key].amt+=p.amt; outInfluMap[key].count++;
-          });
-          // 배송대행 유출
-          const outDelMap={};
-          DELIVERY_PAY_DATA.forEach(d => {
-            const dym=d.issueDate?String(d.issueDate).slice(0,7):null;
-            if (!dym||dym!==ym) return;
-            const key=(d.client||'').toLowerCase()+'|'+(d.brand||'').toLowerCase()+'|'+(d.squad||'').toLowerCase()+'|'+(d.year||'')+'|'+(d.month||'')+'|'+(d.settleType||'배송대행').toLowerCase();
-            if (!outDelMap[key]) outDelMap[key]={client:d.client||'',brand:d.brand||'',csm:d.squad||'',year:d.year||'',month:d.month||'',settle:d.settleType||'배송대행',amt:0,count:0};
-            outDelMap[key].amt+=d.taxAmtIn||0; outDelMap[key].count++;
+            if (!outMap[key]) outMap[key]={client:p.client||'',brand:p.brand||'',csm:p.csm||'',year:p.year||'',month:p.month||'',amt:0,count:0};
+            outMap[key].amt+=p.amt; outMap[key].count++;
           });
           const inList=Object.values(inMap).sort((a,b)=>b.vatIn-a.vatIn);
-          const outInfluList=Object.values(outInfluMap).sort((a,b)=>b.amt-a.amt);
-          const outDelList=Object.values(outDelMap).sort((a,b)=>b.amt-a.amt);
-          const inSum=inList.reduce((s,x)=>s+x.vatIn,0);
-          const outInfluSum=outInfluList.reduce((s,x)=>s+x.amt,0);
-          const outDelSum=outDelList.reduce((s,x)=>s+x.amt,0);
-          const outSum=outInfluSum+outDelSum;
+          const outList=Object.values(outMap).sort((a,b)=>b.amt-a.amt);
+          const inSum=inList.reduce((s,x)=>s+x.vatIn,0), outSum=outList.reduce((s,x)=>s+x.amt,0);
           let h='<tr><td colspan="5" style="padding:0;background:var(--bg-base);border-bottom:1px solid var(--border-strong)">';
           h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border-strong)">';
-          // IN 패널 (풀 너비)
+          // IN 패널
           h+='<div style="background:#0b1220;padding:14px 16px">';
           h+='<div style="font-size:12px;font-weight:600;color:#60a5fa;margin-bottom:8px">📥 유입 상세 ('+ym+') · 합계 '+fmt(inSum)+'</div>';
           if (!inList.length) { h+='<div style="color:#64748b;font-size:11px;padding:8px 0">해당 월 발행 내역 없음</div>'; }
           else {
-            h+='<table style="width:100%;font-size:11px;border-collapse:collapse"><thead><tr style="color:#64748b;border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px 4px">고객사</th><th style="text-align:left;padding:6px 4px">브랜드</th><th style="text-align:left;padding:6px 4px">CSM</th><th style="text-align:center;padding:6px 4px">연/월</th><th style="text-align:center;padding:6px 4px">정산구분</th><th style="text-align:right;padding:6px 4px">금액(VAT+)</th></tr></thead><tbody>';
+            h+='<table style="width:100%;font-size:11px;border-collapse:collapse"><thead><tr style="color:#64748b;border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px 4px">고객사</th><th style="text-align:left;padding:6px 4px">브랜드</th><th style="text-align:left;padding:6px 4px">CSM</th><th style="text-align:center;padding:6px 4px">년/월</th><th style="text-align:center;padding:6px 4px">정산구분</th><th style="text-align:right;padding:6px 4px">금액(VAT+)</th></tr></thead><tbody>';
             inList.forEach(x => {
-              h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 4px;color:#e2e8f0">'+x.client+'</td><td style="padding:6px 4px;color:#cbd5e1">'+x.brand+'</td><td style="padding:6px 4px;color:#94a3b8">'+x.csm+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.year+'/'+(x.month||'')+'</td><td style="padding:6px 4px;text-align:center;color:#cbd5e1">'+(x.settle||'-')+'</td><td style="padding:6px 4px;text-align:right;color:#60a5fa;font-weight:600">'+fmt(x.vatIn)+'</td></tr>';
+              h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 4px;color:#e2e8f0">'+x.client+'</td><td style="padding:6px 4px;color:#cbd5e1">'+x.brand+'</td><td style="padding:6px 4px;color:#cbd5e1">'+x.csm+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.year+'/'+x.month+'</td><td style="padding:6px 4px;text-align:center;color:#cbd5e1">'+(x.settle||'-')+'</td><td style="padding:6px 4px;text-align:right;color:#60a5fa;font-weight:600">'+fmt(x.vatIn)+'</td></tr>';
             });
             h+='</tbody></table>';
           }
           h+='</div>';
-          // OUT 패널 (인플정산 + 배송대행 통합 — 풀 너비)
+          // OUT 패널
           h+='<div style="background:#0b1220;padding:14px 16px">';
           h+='<div style="font-size:12px;font-weight:600;color:#f87171;margin-bottom:8px">📤 유출 상세 ('+ym+') · 합계 '+fmt(outSum)+'</div>';
-          if (!outInfluList.length && !outDelList.length) { h+='<div style="color:#64748b;font-size:11px;padding:8px 0">해당 월 지급 내역 없음</div>'; }
+          if (!outList.length) { h+='<div style="color:#64748b;font-size:11px;padding:8px 0">해당 월 인플 지급 내역 없음</div>'; }
           else {
-            h+='<table style="width:100%;font-size:11px;border-collapse:collapse"><thead><tr style="color:#64748b;border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px 4px">고객사</th><th style="text-align:left;padding:6px 4px">브랜드</th><th style="text-align:left;padding:6px 4px">CSM</th><th style="text-align:center;padding:6px 4px">연/월</th><th style="text-align:center;padding:6px 4px">정산구분</th><th style="text-align:right;padding:6px 4px">금액(KRW)</th><th style="text-align:center;padding:6px 4px">건수</th></tr></thead><tbody>';
-            outInfluList.forEach(x => {
-              h+='<tr style="border-bottom:1px solid var(--border);background:rgba(245,158,11,0.04)"><td style="padding:6px 4px;color:#e2e8f0">'+x.client+'</td><td style="padding:6px 4px;color:#cbd5e1">'+x.brand+'</td><td style="padding:6px 4px;color:#94a3b8">'+x.csm+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.year+'/'+(x.month||'')+'</td><td style="padding:6px 4px;text-align:center"><span style="background:rgba(245,158,11,0.15);color:#f59e0b;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:600">인플정산</span></td><td style="padding:6px 4px;text-align:right;color:#f59e0b;font-weight:600">'+fmt(x.amt)+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.count+'</td></tr>';
-            });
-            outDelList.forEach(x => {
-              h+='<tr style="border-bottom:1px solid var(--border);background:rgba(167,139,250,0.04)"><td style="padding:6px 4px;color:#e2e8f0">'+x.client+'</td><td style="padding:6px 4px;color:#cbd5e1">'+x.brand+'</td><td style="padding:6px 4px;color:#94a3b8">'+x.csm+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.year+'/'+(x.month||'')+'</td><td style="padding:6px 4px;text-align:center"><span style="background:rgba(167,139,250,0.15);color:#a78bfa;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:600">배송대행</span></td><td style="padding:6px 4px;text-align:right;color:#a78bfa;font-weight:600">'+fmt(x.amt)+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.count+'</td></tr>';
+            h+='<table style="width:100%;font-size:11px;border-collapse:collapse"><thead><tr style="color:#64748b;border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px 4px">고객사</th><th style="text-align:left;padding:6px 4px">브랜드</th><th style="text-align:left;padding:6px 4px">CSM</th><th style="text-align:center;padding:6px 4px">년/월</th><th style="text-align:right;padding:6px 4px">금액(KRW)</th><th style="text-align:center;padding:6px 4px">건수</th></tr></thead><tbody>';
+            outList.forEach(x => {
+              h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px 4px;color:#e2e8f0">'+x.client+'</td><td style="padding:6px 4px;color:#cbd5e1">'+x.brand+'</td><td style="padding:6px 4px;color:#cbd5e1">'+x.csm+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.year+'/'+x.month+'</td><td style="padding:6px 4px;text-align:right;color:#f87171;font-weight:600">'+fmt(x.amt)+'</td><td style="padding:6px 4px;text-align:center;color:#94a3b8">'+x.count+'</td></tr>';
             });
             h+='</tbody></table>';
           }
@@ -4378,21 +4658,19 @@ function render() {
         let html='';
         html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">';
         html+='<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유입 (세발 발행기준)</div><div style="font-size:22px;font-weight:700;color:#60a5fa">'+fmt(totalIn)+'</div><div style="font-size:10px;color:#64748b;margin-top:4px">VAT 포함</div></div>';
-        const totalInfluOut=rows.reduce((s,r)=>s+(r.outInflu||0),0), totalDelOut=rows.reduce((s,r)=>s+(r.outDelivery||0),0);
-        html+='<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유출 (인플정산 + 배송대행)</div><div style="font-size:22px;font-weight:700;color:#f87171">'+fmt(totalOut)+'</div><div style="font-size:10px;color:#64748b;margin-top:4px"><span style="color:#f59e0b">인플 '+fmt(totalInfluOut)+'</span> · <span style="color:#a78bfa">배송 '+fmt(totalDelOut)+'</span></div></div>';
+        html+='<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">총 유출 (인플 정산)</div><div style="font-size:22px;font-weight:700;color:#f87171">'+fmt(totalOut)+'</div><div style="font-size:10px;color:#64748b;margin-top:4px">지급일자 기준 · USD 1,500원 환산</div></div>';
         html+='<div class="card" style="text-align:center"><div style="font-size:11px;color:#94a3b8;margin-bottom:6px">순현금흐름 누적</div><div style="font-size:22px;font-weight:700;color:'+colorNet(totalNet)+'">'+fmtSigned(totalNet)+'</div><div style="font-size:10px;color:#64748b;margin-top:4px">유입 - 유출</div></div>';
         html+='</div>';
         html+='<div class="card" style="margin-bottom:16px"><div style="font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:12px">월별 유입 vs 유출 (누적 순현금)</div><div style="height:340px"><canvas id="cashflowChartCanvas"></canvas></div></div>';
         html+='<div class="card"><div style="font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:12px">월별 현금흐름 표 <span style="font-size:11px;color:#64748b;font-weight:400">· 행 클릭 시 유입/유출 상세 펼침</span></div>';
-        html+='<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--border-strong);color:#94a3b8"><th style="text-align:left;padding:8px">월</th><th style="text-align:right;padding:8px">유입</th><th style="text-align:right;padding:8px;color:#f59e0b">인플정산</th><th style="text-align:right;padding:8px;color:#a78bfa">배송대행</th><th style="text-align:right;padding:8px">순현금</th><th style="text-align:right;padding:8px">누적</th></tr></thead><tbody>';
+        html+='<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid var(--border-strong);color:#94a3b8"><th style="text-align:left;padding:8px">월</th><th style="text-align:right;padding:8px">유입</th><th style="text-align:right;padding:8px">유출</th><th style="text-align:right;padding:8px">순현금</th><th style="text-align:right;padding:8px">누적</th></tr></thead><tbody>';
         rows.forEach(r => {
           const isCur=r.ym===curYm, isExp=expandedCashflowYm===r.ym;
           const bg=isExp?'background:#1e293b':(isCur?'background:#172033':'');
           html+='<tr onclick="toggleCashflowMonth(\''+r.ym+'\')" style="border-bottom:1px solid var(--border);cursor:pointer;'+bg+'">';
           html+='<td style="padding:8px;color:#e2e8f0"><span style="display:inline-block;width:14px;color:#64748b;font-size:10px">'+(isExp?'▼':'▶')+'</span> '+r.ym+(isCur?' <span style="font-size:10px;color:#fbbf24">(현재)</span>':'')+'</td>';
           html+='<td style="padding:8px;text-align:right;color:#60a5fa">'+(r.inn>0?fmt(r.inn):'-')+'</td>';
-          html+='<td style="padding:8px;text-align:right;color:#f59e0b">'+(r.outInflu>0?fmt(r.outInflu):'-')+'</td>';
-          html+='<td style="padding:8px;text-align:right;color:#a78bfa">'+(r.outDelivery>0?fmt(r.outDelivery):'-')+'</td>';
+          html+='<td style="padding:8px;text-align:right;color:#f87171">'+(r.out>0?fmt(r.out):'-')+'</td>';
           html+='<td style="padding:8px;text-align:right;font-weight:600;color:'+colorNet(r.net)+'">'+fmtSigned(r.net)+'</td>';
           html+='<td style="padding:8px;text-align:right;color:'+colorNet(r.cum)+'">'+fmtSigned(r.cum)+'</td>';
           html+='</tr>';
@@ -4401,6 +4679,165 @@ function render() {
         html+='</tbody></table></div>';
         window.__cashflowChartData = rows;
         return headerHTML + html;
+      })()}
+    </div>
+    <!-- TAB: GP 변동이력 -->
+    <div class="tab-content ${currentTab==='history'?'active':''}" id="tab-history">
+      ${(() => {
+        // 변동유형 → 표시 정보 매핑 (시트 기록값 + localStorage 감지값 통합)
+        const typeInfo = {
+          '신규추가': { label: '신규 추가', icon: '✨', color: '#10b981', bg: 'rgba(16,185,129,0.12)', border: 'rgba(16,185,129,0.3)' },
+          '홀딩':     { label: '홀딩',      icon: '⏸',  color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.3)' },
+          '재개':     { label: '재개',      icon: '▶',   color: '#22d3ee', bg: 'rgba(34,211,238,0.12)', border: 'rgba(34,211,238,0.3)' },
+          '금액변동': { label: '금액 변동', icon: '📊',  color: '#818cf8', bg: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.3)' },
+          '행삭제':   { label: '행 삭제',   icon: '🗑',  color: '#f87171', bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.3)' }
+        };
+        const getTypeInfo = (t) => typeInfo[t] || { label: t, icon: '·', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)', border: 'rgba(148,163,184,0.2)' };
+
+        const fmtGPCell = (prev, next, diff) => {
+          if (next === null || next === '') return '<span style="color:#f87171">삭제됨</span>';
+          if (prev === null || prev === '') return '<span style="color:#34d399">+' + Math.round(next).toLocaleString() + '원</span>';
+          const d = diff !== null ? diff : (next - prev);
+          if (Math.abs(d) < 1) return '<span style="color:#64748b">0원</span>';
+          const col = d > 0 ? '#34d399' : '#f87171';
+          return '<span style="color:'+col+'">'+(d>0?'+':'')+Math.round(d).toLocaleString()+'원</span>';
+        };
+
+        // ══ 모드 1: Apps Script 시트 기반 (GID 설정됨) ══
+        const useSheetMode = HISTORY_GID && HISTORY_SHEET_DATA && HISTORY_SHEET_DATA.length > 0;
+        const sheetsConfigured = !!HISTORY_GID;
+
+        // GID 설정 배너
+        const configBanner = () => {
+          if (sheetsConfigured) return '';
+          return '<div style="background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:14px 18px;margin-bottom:14px;font-size:12.5px;color:#c7d2fe;display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
+            '<span>📋 <b>Apps Script 설치 후</b> "GP변동이력" 시트 GID를 입력하면 팀 전체가 동일한 이력을 공유합니다</span>' +
+            '<input id="histGidInput" type="text" placeholder="예: 1234567890" value="' + (HISTORY_GID||'') + '" style="flex:1;min-width:160px;background:#060e1c;border:1px solid rgba(99,102,241,0.3);border-radius:6px;padding:6px 12px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none">' +
+            '<button onclick="saveHistoryGid()" style="padding:6px 16px;border-radius:6px;border:none;background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">저장</button>' +
+            '</div>';
+        };
+
+        // ══ 시트 기반 렌더링 ══
+        if (useSheetMode) {
+          // 날짜별 그룹화 (최신순)
+          const byDate = {};
+          HISTORY_SHEET_DATA.forEach(r => {
+            if (!byDate[r.detectedAt]) byDate[r.detectedAt] = [];
+            byDate[r.detectedAt].push(r);
+          });
+          const dates = Object.keys(byDate).sort().reverse();
+
+          // 전체 카운트
+          const allCounts = {};
+          HISTORY_SHEET_DATA.forEach(r => { allCounts[r.type] = (allCounts[r.type]||0)+1; });
+          const totalAll = HISTORY_SHEET_DATA.length;
+
+          // 필터 적용
+          const filteredDates = dates.map(d => ({
+            date: d,
+            rows: historyFilter === 'all' ? byDate[d] : byDate[d].filter(r => r.type === historyFilter)
+          })).filter(g => g.rows.length > 0);
+
+          let html = configBanner();
+
+          // ── 타임라인 바 차트 ──
+          html += '<div class="card" style="margin-bottom:14px">';
+          html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:6px">';
+          html += '<h3 style="margin:0;font-size:13px;font-weight:600;color:var(--text-1)">📈 일별 GP 변동 추이</h3>';
+          html += '<span style="font-size:11px;color:var(--text-3)">바를 클릭하면 해당 일자 상세로 이동</span>';
+          html += '</div>';
+          html += '<div style="height:200px;position:relative"><canvas id="gpHistoryChart"></canvas></div>';
+          html += '</div>';
+
+          // 상단 요약
+          html += '<div class="card" style="margin-bottom:14px">';
+          html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">';
+          html += '<div><h2 style="margin:0;font-size:15px">📋 GP 변동이력 <span style="background:rgba(16,185,129,0.15);color:#34d399;font-size:10px;border-radius:6px;padding:2px 8px;font-weight:600;margin-left:6px">시트 연동</span>';
+          html += '<span style="font-size:11px;font-weight:400;color:var(--text-3);margin-left:8px">· ' + dates.length + '일치 · 총 ' + totalAll + '건</span></h2></div></div>';
+
+          // 타입 필터 칩
+          html += '<div style="display:flex;flex-wrap:wrap;gap:8px">';
+          const allBtn = historyFilter === 'all';
+          html += '<button onclick="setHistoryFilter(\'all\')" style="padding:5px 14px;border-radius:20px;border:1px solid '+(allBtn?'rgba(255,255,255,0.2)':'rgba(255,255,255,0.08)')+';background:'+(allBtn?'rgba(255,255,255,0.1)':'transparent')+';color:'+(allBtn?'#f0f6fc':'#64748b')+';font-size:12px;font-weight:'+(allBtn?'600':'400')+';cursor:pointer;font-family:inherit">전체 <span style="opacity:0.6">'+totalAll+'</span></button>';
+          Object.entries(allCounts).forEach(([type, cnt]) => {
+            const ti = getTypeInfo(type);
+            const act = historyFilter === type;
+            html += '<button onclick="setHistoryFilter(\''+type+'\')" style="padding:5px 14px;border-radius:20px;border:1px solid '+(act?ti.border:'rgba(255,255,255,0.08)')+';background:'+(act?ti.bg:'transparent')+';color:'+(act?ti.color:'#64748b')+';font-size:12px;font-weight:'+(act?'600':'400')+';cursor:pointer;font-family:inherit">'+ti.icon+' '+ti.label+' <span style="opacity:0.6">'+cnt+'</span></button>';
+          });
+          html += '</div></div>';
+
+          if (filteredDates.length === 0) {
+            html += '<div class="card"><div style="text-align:center;padding:32px;color:#64748b">선택한 유형의 변동 내역이 없습니다.</div></div>';
+            return html;
+          }
+
+          filteredDates.forEach(group => {
+            const rows = group.rows;
+            const typeCounts = {};
+            rows.forEach(r => { typeCounts[r.type] = (typeCounts[r.type]||0)+1; });
+            const typeSummary = Object.entries(typeCounts).map(([t,n]) => {
+              const ti = getTypeInfo(t);
+              return '<span style="color:'+ti.color+';font-size:10px;background:'+ti.bg+';border:1px solid '+ti.border+';border-radius:12px;padding:2px 8px;font-weight:600">'+ti.icon+' '+ti.label+' '+n+'건</span>';
+            }).join(' ');
+            const fromDateStr = rows[0].fromDate ? ' (기준: ' + fmtDate(rows[0].fromDate) + ')' : '';
+
+            const isSelected = window._gpHistSelectedDate === group.date;
+            const selStyle = isSelected ? 'border-color:rgba(99,102,241,0.5);box-shadow:0 0 0 1px rgba(99,102,241,0.25),var(--shadow-card);' : '';
+            html += '<div id="hist-date-'+group.date+'" class="card" style="margin-bottom:14px;'+selStyle+'">';
+            html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">';
+            html += '<div style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);border-radius:8px;padding:6px 14px">';
+            html += '<div style="font-size:12px;font-weight:700;color:#a5b4fc">' + fmtDate(group.date) + ' 감지</div>';
+            html += '<div style="font-size:10px;color:#475569;margin-top:1px">전일' + fromDateStr + ' 대비</div>';
+            html += '</div>';
+            html += '<div style="display:flex;flex-wrap:wrap;gap:4px">' + typeSummary + '</div>';
+            html += '</div>';
+
+            html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">';
+            html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.1)">';
+            ['유형','고객사','브랜드','대상 월','이전 GP','변경 GP','변동액'].forEach((h,i) => {
+              const align = i >= 4 ? 'right' : (i === 3 ? 'center' : 'left');
+              html += '<th style="padding:8px 12px;text-align:'+align+';color:#475569;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;white-space:nowrap">'+h+'</th>';
+            });
+            html += '</tr></thead><tbody>';
+
+            const typeOrder = ['신규추가','재개','금액변동','홀딩','행삭제'];
+            const sorted = [...rows].sort((a,b) => typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type));
+            sorted.forEach((r, idx) => {
+              const ti = getTypeInfo(r.type);
+              const ym = String(r.year||'').replace(/'/g,'').trim().slice(-2) + '년 ' + r.month + '월';
+              const bg = idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)';
+              html += '<tr style="background:'+bg+';border-bottom:1px solid rgba(255,255,255,0.04)">';
+              html += '<td style="padding:9px 12px"><span style="background:'+ti.bg+';border:1px solid '+ti.border+';color:'+ti.color+';border-radius:12px;padding:2px 10px;font-size:10.5px;font-weight:600;white-space:nowrap">'+ti.icon+' '+ti.label+'</span></td>';
+              html += '<td style="padding:9px 12px;color:#e2e8f0;font-weight:500">'+r.client+'</td>';
+              html += '<td style="padding:9px 12px;color:#94a3b8">'+r.brand+'</td>';
+              html += '<td style="padding:9px 12px;text-align:center;color:#64748b;font-size:11.5px">'+ym+'</td>';
+              html += '<td style="padding:9px 12px;text-align:right;color:#64748b">'+((r.prevGP===null||r.prevGP==='') ? '<span style="color:#475569">-</span>' : Math.round(r.prevGP).toLocaleString()+'원')+'</td>';
+              html += '<td style="padding:9px 12px;text-align:right">'+((r.newGP===null||r.newGP==='') ? '<span style="color:#f87171">삭제됨</span>' : Math.round(r.newGP).toLocaleString()+'원')+'</td>';
+              html += '<td style="padding:9px 12px;text-align:right;font-weight:600">'+fmtGPCell(r.prevGP, r.newGP, r.diff)+'</td>';
+              html += '</tr>';
+            });
+            html += '</tbody></table></div></div>';
+          });
+          return html;
+        }
+
+        // ══ 모드 2: GID 미설정 — 안내 화면 ══
+        return configBanner() +
+          '<div class="card"><div style="text-align:center;padding:48px 24px">' +
+          '<div style="font-size:44px;margin-bottom:18px">📋</div>' +
+          '<div style="font-size:16px;font-weight:700;color:var(--text-1);margin-bottom:10px">Apps Script 연동이 필요합니다</div>' +
+          '<div style="font-size:13px;color:var(--text-3);line-height:1.9;max-width:480px;margin:0 auto">' +
+          '아래 단계를 완료하면 팀 전체가 동일한 GP 변동이력을 공유할 수 있습니다.' +
+          '</div>' +
+          '<div style="margin-top:24px;text-align:left;display:inline-block;background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:20px 24px;font-size:13px;line-height:2">' +
+          '<div><span style="color:#818cf8;font-weight:700">① </span>Google Sheets → 확장 프로그램 → Apps Script</div>' +
+          '<div><span style="color:#818cf8;font-weight:700">② </span><code style="background:rgba(99,102,241,0.1);padding:1px 6px;border-radius:4px">gp_history_tracker.gs</code> 파일 내용 붙여넣기</div>' +
+          '<div><span style="color:#818cf8;font-weight:700">③ </span><code style="background:rgba(99,102,241,0.1);padding:1px 6px;border-radius:4px">setupTrigger</code> 함수 실행 → 권한 허용</div>' +
+          '<div><span style="color:#818cf8;font-weight:700">④ </span><code style="background:rgba(99,102,241,0.1);padding:1px 6px;border-radius:4px">dailyGPSnapshot</code> 함수 실행 (첫 스냅샷)</div>' +
+          '<div><span style="color:#818cf8;font-weight:700">⑤ </span>생성된 "GP변동이력" 시트의 GID를 위 입력란에 입력</div>' +
+          '</div>' +
+          '<div style="margin-top:16px;font-size:11px;color:#475569">GID는 시트 탭을 클릭 → 주소창 끝 <code>#gid=XXXXXX</code> 숫자입니다</div>' +
+          '</div></div>';
       })()}
     </div>
     <!-- TAB: Tax Invoice (세금계산서) - 삭제됨 -->
@@ -4659,6 +5096,7 @@ function render() {
     if(currentTab==='product') {
       renderProductCharts(pa, midx);
     }
+    if(currentTab==='history' && HISTORY_SHEET_DATA.length > 0) renderGPHistoryChart();
     if(currentTab==='tax' && TAX_DATA.length > 0 && document.getElementById('taxMonthlyChart')) {
       const monthlyData = {};
       TAX_DATA.forEach(d => {
