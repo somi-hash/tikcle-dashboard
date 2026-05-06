@@ -893,7 +893,7 @@ function renderGPHistoryChart() {
   const canvas = document.getElementById('gpHistoryChart');
   if (!canvas || !HISTORY_SHEET_DATA || HISTORY_SHEET_DATA.length === 0) return;
 
-  // 날짜별 pos / neg 합계 계산 (오름차순)
+  // 날짜별 pos / neg 합계 + 누적 순변동 계산 (오름차순)
   const byDate = {};
   HISTORY_SHEET_DATA.forEach(r => {
     const d = r.detectedAt;
@@ -905,6 +905,12 @@ function renderGPHistoryChart() {
   const dates = Object.keys(byDate).sort(); // oldest → newest (left → right)
   const posData = dates.map(d => byDate[d].pos || null);
   const negData = dates.map(d => byDate[d].neg || null);
+  // 누적 순변동 라인 (일별 net 합산)
+  let cum = 0;
+  const cumData = dates.map(d => {
+    cum += (byDate[d].pos || 0) + (byDate[d].neg || 0);
+    return cum;
+  });
   const labels  = dates.map(d => {
     const p = d.split('-');
     return (p[1] || '') + '/' + (p[2] || '');
@@ -913,7 +919,7 @@ function renderGPHistoryChart() {
   // 기존 인스턴스 파기
   if (_gpHistoryChartInst) { try { _gpHistoryChartInst.destroy(); } catch(e){} _gpHistoryChartInst = null; }
 
-  // 바 위/아래 레이블 커스텀 플러그인
+  // 바 위/아래 레이블 + 누적 라인 포인트 레이블 커스텀 플러그인
   const datalabelsPlugin = {
     id: 'gpHistLabels',
     afterDatasetsDraw(chart) {
@@ -921,18 +927,39 @@ function renderGPHistoryChart() {
       chart.data.datasets.forEach((ds, dsIdx) => {
         const meta = chart.getDatasetMeta(dsIdx);
         if (meta.hidden) return;
-        meta.data.forEach((bar, i) => {
-          const val = ds.data[i];
-          if (!val || Math.abs(val) < 1) return;
-          const lbl = fmtGPLabel(val);
-          ctx.save();
-          ctx.font = '600 9.5px Inter, -apple-system, sans-serif';
-          ctx.fillStyle = val > 0 ? '#6ee7b7' : '#fca5a5';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = val > 0 ? 'bottom' : 'top';
-          ctx.fillText(lbl, bar.x, val > 0 ? bar.y - 3 : bar.y + 3);
-          ctx.restore();
-        });
+        // 바(GP증가/감소) 레이블
+        if (ds.type !== 'line') {
+          meta.data.forEach((bar, i) => {
+            const val = ds.data[i];
+            if (!val || Math.abs(val) < 1) return;
+            ctx.save();
+            ctx.font = '600 9.5px Inter, -apple-system, sans-serif';
+            ctx.fillStyle = val > 0 ? '#6ee7b7' : '#fca5a5';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = val > 0 ? 'bottom' : 'top';
+            ctx.fillText(fmtGPLabel(val), bar.x, val > 0 ? bar.y - 3 : bar.y + 3);
+            ctx.restore();
+          });
+        }
+        // 누적 라인 포인트 레이블 (마지막 포인트 또는 모든 포인트)
+        if (ds.type === 'line') {
+          meta.data.forEach((pt, i) => {
+            const val = ds.data[i];
+            if (val == null) return;
+            // 첫 번째 또는 마지막 포인트에만 레이블 표시
+            const isFirst = i === 0;
+            const isLast  = i === meta.data.length - 1;
+            if (!isFirst && !isLast) return;
+            const lbl = fmtGPLabel(val);
+            ctx.save();
+            ctx.font = '700 10px Inter, -apple-system, sans-serif';
+            ctx.fillStyle = '#fbbf24';
+            ctx.textAlign = isLast ? 'right' : 'left';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(lbl, pt.x + (isLast ? 2 : -2), pt.y - 5);
+            ctx.restore();
+          });
+        }
       });
     }
   };
@@ -961,6 +988,22 @@ function renderGPHistoryChart() {
           borderRadius: 4,
           borderSkipped: 'top',
           stack: 'gp'
+        },
+        {
+          type: 'line',
+          label: '누적 GP 변동',
+          data: cumData,
+          borderColor: '#f59e0b',
+          backgroundColor: 'rgba(245,158,11,0.08)',
+          borderWidth: 2.5,
+          pointRadius: 4,
+          pointBackgroundColor: '#f59e0b',
+          pointBorderColor: '#0c1524',
+          pointBorderWidth: 1.5,
+          tension: 0.3,
+          fill: false,
+          order: 0,
+          stack: undefined   // 라인은 스택 제외
         }
       ]
     },
@@ -995,7 +1038,10 @@ function renderGPHistoryChart() {
             },
             label: (ctx) => {
               const v = ctx.raw;
-              if (!v) return null;
+              if (v == null || v === 0) return null;
+              if (ctx.dataset.type === 'line') {
+                return '누적 변동: ' + fmtGPLabel(v);
+              }
               return ctx.dataset.label + ': ' + fmtGPLabel(v);
             }
           }
