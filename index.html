@@ -814,13 +814,21 @@ function parseHistorySheetResponse(response) {
     const table = response.table;
     if (!table || !table.rows) return [];
     const data = [];
+    const MONTH_EN = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
     const dateStr = (v) => {
       if (!v) return '';
-      const s = String(v);
-      if (s.match(/^Date\(/)) {
-        const m = s.match(/Date\((\d+),(\d+),(\d+)\)/);
-        if (m) return m[1]+'-'+String(+m[2]+1).padStart(2,'0')+'-'+String(+m[3]).padStart(2,'0');
+      const s = String(v).trim();
+      // gviz Date format: Date(2026,4,4) — month is 0-indexed
+      const dm = s.match(/^Date\((\d+),(\d+),(\d+)\)/);
+      if (dm) return dm[1]+'-'+String(+dm[2]+1).padStart(2,'0')+'-'+String(+dm[3]).padStart(2,'0');
+      // Google Sheets locale date text: "Mon May 04" or "Mon May 04 2026"
+      const em = s.match(/^[A-Z][a-z]{2}\s([A-Z][a-z]{2})\s(\d{1,2})(?:\s(\d{4}))?/);
+      if (em) {
+        const mo = MONTH_EN[em[1]] || 1;
+        const yr = em[3] ? parseInt(em[3]) : new Date().getFullYear();
+        return yr+'-'+String(mo).padStart(2,'0')+'-'+String(+em[2]).padStart(2,'0');
       }
+      // Already YYYY-MM-DD or similar
       return s.length >= 10 ? s.slice(0,10) : s;
     };
     const numVal = (v) => v !== null && v !== undefined && v !== '' ? (parseFloat(String(v).replace(/[₩,\s]/g,'')) || 0) : null;
