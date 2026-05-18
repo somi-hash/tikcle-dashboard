@@ -4837,8 +4837,8 @@ function render() {
         // ─── 테이블 행 데이터 생성 ───
         const tableRows = monthRows.map(r => {
           const [ym, client, brand, squad, year, month, inAmt, outAmt, gp, sebal] = r;
-          // 의미 없는 행(둘 다 0) 제외
-          if (!inAmt && !sebal) return null;
+          // 수취예정금액 0원인 행 제외
+          if (!inAmt || inAmt <= 0) return null;
           const diff = (inAmt||0) - (sebal||0);
           const isComplete = Math.abs(diff) < 1 && (inAmt||0) > 0;
           // cashflow 매칭 (4자리 우선)
