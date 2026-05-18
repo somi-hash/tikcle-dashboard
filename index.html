@@ -4801,15 +4801,37 @@ function render() {
 
         const fmtT = (n) => '₩'+Math.round(n||0).toLocaleString();
 
-        // 캠페인 마감 정규화
-        const normCampStatus = (s) => {
+        // ─── 캠페인 마감 카테고리화 (단일 값 입력) ───
+        // 우선순위: 운영 중(0) > 운영 전(1) > 홀딩(2) > 마감(3)
+        const campCategory = (s) => {
           const ss = String(s||'').trim();
-          if (!ss) return {label:'-', color:'#64748b', bg:'transparent'};
-          if (ss.includes('마감')) return {label:'마감', color:'#94a3b8', bg:'rgba(148,163,184,0.12)'};
-          if (ss.includes('홀딩') || ss.includes('드랍')) return {label:'홀딩', color:'#f87171', bg:'rgba(239,68,68,0.12)'};
-          if (ss.includes('운영 전') || ss.includes('운영전')) return {label:'운영 전', color:'#fbbf24', bg:'rgba(245,158,11,0.12)'};
-          if (ss.includes('운영')) return {label:'운영 중', color:'#4ade80', bg:'rgba(74,222,128,0.12)'};
-          return {label:ss.length>10?ss.slice(0,10)+'…':ss, color:'#94a3b8', bg:'rgba(148,163,184,0.08)'};
+          if (!ss) return null;
+          if (ss.includes('운영 전') || ss.includes('운영전')) return {key:'운영 전', priority:1, color:'#fbbf24', bg:'rgba(245,158,11,0.12)'};
+          if (ss.includes('운영')) return {key:'운영 중', priority:0, color:'#4ade80', bg:'rgba(74,222,128,0.12)'};
+          if (ss.includes('홀딩') || ss.includes('드랍')) return {key:'홀딩', priority:2, color:'#f87171', bg:'rgba(239,68,68,0.12)'};
+          if (ss.includes('마감')) return {key:'마감', priority:3, color:'#94a3b8', bg:'rgba(148,163,184,0.12)'};
+          return {key:ss.length>10?ss.slice(0,10)+'…':ss, priority:9, color:'#94a3b8', bg:'rgba(148,163,184,0.08)'};
+        };
+
+        // ─── 정산현황 카테고리화 (단일 값 입력) ───
+        // 우선순위: 진행 중(0) > 미정(1) > 정산 마감(2) > 해당없음(3)
+        const settleCategory = (s) => {
+          const ss = String(s||'').trim();
+          if (!ss) return null;
+          if (ss.includes('진행')) return {key:'진행 중', priority:0, color:'#fbbf24', bg:'rgba(245,158,11,0.12)'};
+          if (ss.includes('미정')) return {key:'미정', priority:1, color:'#f87171', bg:'rgba(239,68,68,0.12)'};
+          if (ss.includes('마감') || ss.includes('완료')) return {key:'정산 마감', priority:2, color:'#4ade80', bg:'rgba(74,222,128,0.12)'};
+          if (ss.includes('해당없음') || ss.includes('해당 없음') || ss.includes('N/A')) return {key:'해당없음', priority:3, color:'#64748b', bg:'rgba(148,163,184,0.08)'};
+          return {key:ss.length>10?ss.slice(0,10)+'…':ss, priority:9, color:'#94a3b8', bg:'rgba(148,163,184,0.08)'};
+        };
+
+        // 여러 값 중 가장 활성(낮은 priority) 카테고리 선택 + 혼합 여부 반환
+        const pickPrimary = (rawArr, categorize) => {
+          const cats = rawArr.map(categorize).filter(c => c);
+          if (cats.length === 0) return {primary:null, mixCount:0, allKeys:[]};
+          const allKeys = [...new Set(cats.map(c => c.key))];
+          const sorted = cats.slice().sort((a,b) => a.priority - b.priority);
+          return {primary:sorted[0], mixCount:allKeys.length-1, allKeys};
         };
 
         // ─── 테이블 행 데이터 생성 ───
@@ -4823,14 +4845,13 @@ function render() {
           const yk = '20' + String(year).replace(/['"]/g,'').trim().slice(-2);
           const k2 = (client||'').trim().toLowerCase() + '|' + (brand||'').trim().toLowerCase() + '|' + yk + '|' + month;
           const cfMatches = cfMap[k2] || [];
-          // 정산현황은 가장 의미있는 값 1개 (모두 같으면 1개, 다르면 합쳐서)
-          const settleSet = [...new Set(cfMatches.map(c => (c.settleStatus||'').trim()).filter(s => s))];
-          const settleText = settleSet.length === 0 ? '-' : settleSet.join(' / ');
-          // 캠페인 마감: 가장 의미있는 값
-          const campSet = [...new Set(cfMatches.map(c => (c.campStatus||'').trim()).filter(s => s))];
-          const campRaw = campSet.length === 0 ? '' : campSet.join(' / ');
-          const campInfo = normCampStatus(campRaw);
-          return {client, brand, squad, inAmt:inAmt||0, sebal:sebal||0, diff, isComplete, settleText, campInfo, campRaw};
+          // 정산현황: 가장 활성인 카테고리 선택 + 혼합 인디케이터
+          const settleRaws = cfMatches.map(c => (c.settleStatus||'').trim()).filter(s => s);
+          const settlePick = pickPrimary(settleRaws, settleCategory);
+          // 캠페인 마감: 가장 활성인 카테고리 선택 + 혼합 인디케이터
+          const campRaws = cfMatches.map(c => (c.campStatus||'').trim()).filter(s => s);
+          const campPick = pickPrimary(campRaws, campCategory);
+          return {client, brand, squad, inAmt:inAmt||0, sebal:sebal||0, diff, isComplete, settlePick, campPick};
         }).filter(r => r !== null);
 
         // ─── 통계 ───
@@ -4910,8 +4931,24 @@ function render() {
             const badgeBorder = r.isComplete ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)';
             const badgeText = r.isComplete ? '✓ 완료' : '⚠ 필요';
             html += '<td style="padding:10px 14px;text-align:center"><span style="display:inline-block;padding:3px 11px;border-radius:12px;background:'+badgeBg+';color:'+badgeColor+';border:1px solid '+badgeBorder+';font-size:11px;font-weight:600;letter-spacing:.2px">'+badgeText+'</span></td>';
-            html += '<td style="padding:10px 14px;text-align:center;color:#cbd5e1;font-size:11px">'+r.settleText+'</td>';
-            html += '<td style="padding:10px 14px;text-align:center"><span style="display:inline-block;padding:3px 10px;border-radius:10px;background:'+r.campInfo.bg+';color:'+r.campInfo.color+';font-size:11px;font-weight:500">'+r.campInfo.label+'</span></td>';
+            // 정산현황 배지 (혼합 인디케이터 포함)
+            const sp = r.settlePick;
+            if (!sp.primary) {
+              html += '<td style="padding:10px 14px;text-align:center;color:#475569;font-size:11px">-</td>';
+            } else {
+              const sTip = sp.mixCount > 0 ? ' title="혼합: '+sp.allKeys.join(', ')+'"' : '';
+              const sMix = sp.mixCount > 0 ? '<span style="margin-left:4px;font-size:10px;color:#94a3b8;font-weight:400">+'+sp.mixCount+'</span>' : '';
+              html += '<td style="padding:10px 14px;text-align:center"'+sTip+'><span style="display:inline-block;padding:3px 10px;border-radius:10px;background:'+sp.primary.bg+';color:'+sp.primary.color+';font-size:11px;font-weight:500'+(sp.mixCount>0?';cursor:help':'')+'">'+sp.primary.key+sMix+'</span></td>';
+            }
+            // 캠페인 마감 배지 (혼합 인디케이터 포함)
+            const cp = r.campPick;
+            if (!cp.primary) {
+              html += '<td style="padding:10px 14px;text-align:center;color:#475569;font-size:11px">-</td>';
+            } else {
+              const cTip = cp.mixCount > 0 ? ' title="혼합: '+cp.allKeys.join(', ')+'"' : '';
+              const cMix = cp.mixCount > 0 ? '<span style="margin-left:4px;font-size:10px;color:#94a3b8;font-weight:400">+'+cp.mixCount+'</span>' : '';
+              html += '<td style="padding:10px 14px;text-align:center"'+cTip+'><span style="display:inline-block;padding:3px 10px;border-radius:10px;background:'+cp.primary.bg+';color:'+cp.primary.color+';font-size:11px;font-weight:500'+(cp.mixCount>0?';cursor:help':'')+'">'+cp.primary.key+cMix+'</span></td>';
+            }
             html += '</tr>';
           });
           html += '</tbody></table></div>';
