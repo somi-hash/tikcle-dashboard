@@ -1659,7 +1659,8 @@ function parseGvizResponse(response, forceType) {
         if (campName) {
           if (!campaignTimeline) campaignTimeline = [];
           const campStatus = String(val(11)).trim(); // L열=캠페인 마감 여부
-          campaignTimeline.push({campaign:campName, client, brand, product, squad, country, item, year, month, gp, inAmt, outAmt, discStart, discEnd, shipStart, recStart, recEnd, contractEnd, tgtAccept, tgtShip, tgtRec, actualRecEnd, campStatus});
+          const settleStatus = String(val(10)).trim(); // K열=정산현황
+          campaignTimeline.push({campaign:campName, client, brand, product, squad, country, item, year, month, gp, inAmt, outAmt, discStart, discEnd, shipStart, recStart, recEnd, contractEnd, tgtAccept, tgtShip, tgtRec, actualRecEnd, campStatus, settleStatus});
         }
       }
       for (const a of Object.values(aggMap)) {
@@ -3501,6 +3502,8 @@ let campCsmFilter = 'all'; // 'all' or CSM name
 let cashflowSubTab = 'monthly';  // 현금흐름 서브탭: 'monthly','campaign'
 let expandedCampKey = null;      // 캠페인 탭 펼쳐진 행 키
 let portStatusFilter = null;     // 포트폴리오 캠페인 상태 필터 (null=전체)
+let taxStatusYearMonth = null;   // 세발 현황 탭 선택 연월 ('2026-04' 형식, null=자동)
+let taxStatusUnissuedOnly = false; // 세발 현황 탭: 미세발만 보기 토글
 function render() {
   const data = processData(currentYear);
   const {monthly, waterfall, getPortfolio, getCSMData, getHeatmap, getProductAnalysis, getCSMCalendar, totalGP} = data;
@@ -3653,6 +3656,7 @@ function render() {
       <button class="tab-btn ${currentTab==='csm'?'active':''}" onclick="switchTab('csm')">👤 CSM별 현황</button>
       <button class="tab-btn ${currentTab==='product'?'active':''}" onclick="switchTab('product')">📦 상품별 현황</button>
       <button class="tab-btn ${currentTab==='cashflow'?'active':''}" onclick="switchTab('cashflow')">💰 현금흐름</button>
+      <button class="tab-btn ${currentTab==='taxstatus'?'active':''}" onclick="switchTab('taxstatus')">📋 세발 현황</button>
       <button class="tab-btn ${currentTab==='history'?'active':''}" onclick="switchTab('history')">📊 GP 변동이력</button>
     </div>
     <!-- TAB: Overview -->
@@ -4735,6 +4739,189 @@ function render() {
         return headerHTML + html;
       })()}
     </div>
+    <!-- TAB: 세발 현황 -->
+    <div class="tab-content ${currentTab==='taxstatus'?'active':''}" id="tab-taxstatus">
+      ${(() => {
+        if (!RAW || RAW.length === 0) {
+          return '<div class="card"><p style="text-align:center;padding:40px;color:#94a3b8">통합정산 데이터를 불러오는 중입니다...</p></div>';
+        }
+        // ─── 기본 연월 결정: 10일까지는 전월, 11일 이후는 현월 ───
+        const today = new Date();
+        const day = today.getDate();
+        let defY = today.getFullYear();
+        let defM = today.getMonth() + 1;
+        if (day <= 10) {
+          defM -= 1;
+          if (defM === 0) { defM = 12; defY -= 1; }
+        }
+        const defYm = defY + '-' + String(defM).padStart(2,'0');
+
+        // ─── RAW에 존재하는 모든 연월 목록 ───
+        const ymSet = new Set();
+        RAW.forEach(r => {
+          const yRaw = String(r[4]).replace(/['"]/g,'').trim();
+          const y = yRaw.length === 2 ? '20'+yRaw : yRaw;
+          const m = parseInt(r[5]);
+          if (y && !isNaN(m)) ymSet.add(y+'-'+String(m).padStart(2,'0'));
+        });
+        const allYms = [...ymSet].sort();
+        // 기본값이 RAW에 없으면 가장 가까운 과거 연월 선택
+        let selYm = taxStatusYearMonth;
+        if (!selYm) {
+          if (allYms.includes(defYm)) selYm = defYm;
+          else {
+            const pastYms = allYms.filter(y => y <= defYm);
+            selYm = pastYms.length ? pastYms[pastYms.length-1] : (allYms[allYms.length-1] || defYm);
+          }
+        }
+        const [selY, selMstr] = selYm.split('-');
+        const selM = parseInt(selMstr);
+        const selYY = String(selY).slice(-2);
+
+        // ─── RAW에서 해당 연월 필터 ───
+        const monthRows = RAW.filter(r => {
+          const ry = String(r[4]).replace(/['"]/g,'').trim();
+          const rm = parseInt(r[5]);
+          return (ry === selYY || ry === String(selY)) && rm === selM;
+        });
+
+        // ─── CAMPAIGN_DATA (cashflow) 매칭 인덱스 ───
+        const cfMap = {};
+        (CAMPAIGN_DATA || []).forEach(c => {
+          const cy = String(c.year).replace(/['"]/g,'').trim();
+          const cyFull = cy.length === 2 ? '20'+cy : cy;
+          const cyShort = cy.length === 4 ? cy.slice(-2) : cy;
+          // 두 가지 키 모두 등록 (4자리, 2자리)
+          [cyFull, cyShort].forEach(yk => {
+            const k = (c.client||'').trim().toLowerCase() + '|' + (c.brand||'').trim().toLowerCase() + '|' + yk + '|' + c.month;
+            if (!cfMap[k]) cfMap[k] = [];
+            cfMap[k].push(c);
+          });
+        });
+
+        const fmtT = (n) => '₩'+Math.round(n||0).toLocaleString();
+
+        // 캠페인 마감 정규화
+        const normCampStatus = (s) => {
+          const ss = String(s||'').trim();
+          if (!ss) return {label:'-', color:'#64748b', bg:'transparent'};
+          if (ss.includes('마감')) return {label:'마감', color:'#94a3b8', bg:'rgba(148,163,184,0.12)'};
+          if (ss.includes('홀딩') || ss.includes('드랍')) return {label:'홀딩', color:'#f87171', bg:'rgba(239,68,68,0.12)'};
+          if (ss.includes('운영 전') || ss.includes('운영전')) return {label:'운영 전', color:'#fbbf24', bg:'rgba(245,158,11,0.12)'};
+          if (ss.includes('운영')) return {label:'운영 중', color:'#4ade80', bg:'rgba(74,222,128,0.12)'};
+          return {label:ss.length>10?ss.slice(0,10)+'…':ss, color:'#94a3b8', bg:'rgba(148,163,184,0.08)'};
+        };
+
+        // ─── 테이블 행 데이터 생성 ───
+        const tableRows = monthRows.map(r => {
+          const [ym, client, brand, squad, year, month, inAmt, outAmt, gp, sebal] = r;
+          // 의미 없는 행(둘 다 0) 제외
+          if (!inAmt && !sebal) return null;
+          const diff = (inAmt||0) - (sebal||0);
+          const isComplete = Math.abs(diff) < 1 && (inAmt||0) > 0;
+          // cashflow 매칭 (4자리 우선)
+          const yk = '20' + String(year).replace(/['"]/g,'').trim().slice(-2);
+          const k2 = (client||'').trim().toLowerCase() + '|' + (brand||'').trim().toLowerCase() + '|' + yk + '|' + month;
+          const cfMatches = cfMap[k2] || [];
+          // 정산현황은 가장 의미있는 값 1개 (모두 같으면 1개, 다르면 합쳐서)
+          const settleSet = [...new Set(cfMatches.map(c => (c.settleStatus||'').trim()).filter(s => s))];
+          const settleText = settleSet.length === 0 ? '-' : settleSet.join(' / ');
+          // 캠페인 마감: 가장 의미있는 값
+          const campSet = [...new Set(cfMatches.map(c => (c.campStatus||'').trim()).filter(s => s))];
+          const campRaw = campSet.length === 0 ? '' : campSet.join(' / ');
+          const campInfo = normCampStatus(campRaw);
+          return {client, brand, squad, inAmt:inAmt||0, sebal:sebal||0, diff, isComplete, settleText, campInfo, campRaw};
+        }).filter(r => r !== null);
+
+        // ─── 통계 ───
+        const totalCount = tableRows.length;
+        const completeCount = tableRows.filter(r => r.isComplete).length;
+        const incompleteCount = totalCount - completeCount;
+        const totalIn = tableRows.reduce((s,r) => s+r.inAmt, 0);
+        const totalSebal = tableRows.reduce((s,r) => s+r.sebal, 0);
+        const totalGap = totalIn - totalSebal;
+        const completeRate = totalCount > 0 ? (completeCount/totalCount*100) : 0;
+
+        // ─── 필터 + 정렬 ───
+        const filteredRows = taxStatusUnissuedOnly ? tableRows.filter(r => !r.isComplete) : tableRows;
+        filteredRows.sort((a,b) => {
+          if (a.isComplete !== b.isComplete) return a.isComplete ? 1 : -1;
+          return (b.inAmt||0) - (a.inAmt||0);
+        });
+
+        // ─── 연월 선택 드롭다운 ───
+        const ymSelectHTML = '<select onchange="setTaxStatusYM(this.value)" style="padding:7px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.12);background:#060e1c;color:#f0f6fc;font-size:13px;font-weight:500;cursor:pointer;outline:none;font-family:inherit">' +
+          allYms.map(ym => '<option value="'+ym+'" '+(ym===selYm?'selected':'')+'>'+ym+'</option>').join('') +
+          '</select>';
+
+        // ─── 토글 버튼 ───
+        const btnActive = 'background:linear-gradient(135deg,#ef4444,#f87171);color:#fff;border-color:#ef4444';
+        const btnInactive = 'background:transparent;color:#94a3b8;border-color:rgba(255,255,255,0.12)';
+        const toggleBtn = '<button onclick="toggleTaxStatusUnissuedOnly()" style="padding:7px 14px;border-radius:8px;border:1px solid;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;'+(taxStatusUnissuedOnly?btnActive:btnInactive)+'">'+(taxStatusUnissuedOnly?'✓ 미세발만 보기':'⚠️ 미세발만 보기')+'</button>';
+
+        // ─── HTML 조립 ───
+        let html = '<div class="card" style="margin-bottom:14px;padding:18px 22px">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:18px">';
+        html += '<div><h2 style="margin-bottom:4px">📋 세발 현황 <span style="font-size:13px;color:#94a3b8;font-weight:400">· '+selYm+'</span></h2>';
+        html += '<p style="color:#64748b;font-size:12px">수취예정금액 = 세발금액(VAT-) 일 때 세발 완료 · cashflow 시트의 정산현황·캠페인마감여부 자동 매칭</p></div>';
+        html += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+ymSelectHTML+toggleBtn+'</div>';
+        html += '</div>';
+
+        // KPI 그리드
+        html += '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:4px">';
+        html += '<div class="kpi" style="border-left-color:#6366f1"><div class="label" style="display:flex;align-items:center;gap:5px"><span style="opacity:.6">📊</span>총 캠페인</div><div class="value" style="color:#a5b4fc">'+totalCount+'<span style="font-size:13px;color:#64748b;margin-left:4px">건</span></div></div>';
+        html += '<div class="kpi" style="border-left-color:#10b981"><div class="label" style="display:flex;align-items:center;gap:5px"><span style="opacity:.6">✅</span>세발 완료</div><div class="value" style="color:#34d399">'+completeCount+'<span style="font-size:13px;color:#64748b;margin-left:4px">건</span><span style="font-size:11px;color:#64748b;margin-left:6px">('+completeRate.toFixed(0)+'%)</span></div></div>';
+        html += '<div class="kpi" style="border-left-color:#ef4444"><div class="label" style="display:flex;align-items:center;gap:5px"><span style="opacity:.6">⚠️</span>미세발</div><div class="value" style="color:#f87171">'+incompleteCount+'<span style="font-size:13px;color:#64748b;margin-left:4px">건</span></div></div>';
+        html += '<div class="kpi" style="border-left-color:#22d3ee"><div class="label" style="display:flex;align-items:center;gap:5px"><span style="opacity:.6">💰</span>세발/수취 합계</div><div class="value" style="font-size:13px;color:#67e8f9;line-height:1.4">'+fmtT(totalSebal)+'<br><span style="color:#475569;font-size:11px">/ '+fmtT(totalIn)+'</span></div></div>';
+        html += '</div>';
+        html += '</div>';
+
+        // 테이블 카드
+        html += '<div class="card" style="padding:0;overflow:hidden">';
+        if (filteredRows.length === 0) {
+          if (taxStatusUnissuedOnly) {
+            html += '<div style="text-align:center;padding:50px 20px"><div style="font-size:36px;margin-bottom:8px">🎉</div><p style="color:#34d399;font-size:14px;font-weight:600;margin-bottom:4px">미세발 캠페인이 없습니다!</p><p style="color:#64748b;font-size:12px">'+selYm+' 모든 캠페인의 세발이 완료되었어요</p></div>';
+          } else {
+            html += '<p style="text-align:center;padding:50px 20px;color:#64748b;font-size:13px">'+selYm+' 데이터가 없습니다.</p>';
+          }
+        } else {
+          html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:900px">';
+          html += '<thead><tr style="background:rgba(99,102,241,0.06);border-bottom:1px solid rgba(255,255,255,0.07)">';
+          html += '<th style="padding:11px 14px;text-align:left;color:#94a3b8;font-weight:600;font-size:11px;letter-spacing:.3px;text-transform:uppercase">거래처</th>';
+          html += '<th style="padding:11px 14px;text-align:left;color:#94a3b8;font-weight:600;font-size:11px;letter-spacing:.3px;text-transform:uppercase">브랜드</th>';
+          html += '<th style="padding:11px 14px;text-align:left;color:#94a3b8;font-weight:600;font-size:11px;letter-spacing:.3px;text-transform:uppercase">스쿼드</th>';
+          html += '<th style="padding:11px 14px;text-align:right;color:#94a3b8;font-weight:600;font-size:11px;letter-spacing:.3px;text-transform:uppercase">수취예정</th>';
+          html += '<th style="padding:11px 14px;text-align:right;color:#94a3b8;font-weight:600;font-size:11px;letter-spacing:.3px;text-transform:uppercase">세발(VAT-)</th>';
+          html += '<th style="padding:11px 14px;text-align:center;color:#94a3b8;font-weight:600;font-size:11px;letter-spacing:.3px;text-transform:uppercase">세발 여부</th>';
+          html += '<th style="padding:11px 14px;text-align:center;color:#94a3b8;font-weight:600;font-size:11px;letter-spacing:.3px;text-transform:uppercase">정산현황</th>';
+          html += '<th style="padding:11px 14px;text-align:center;color:#94a3b8;font-weight:600;font-size:11px;letter-spacing:.3px;text-transform:uppercase">캠페인 마감</th>';
+          html += '</tr></thead><tbody>';
+          filteredRows.forEach((r, idx) => {
+            const rowBg = r.isComplete ? '' : 'background:rgba(239,68,68,0.04);';
+            const rowBorder = idx < filteredRows.length-1 ? 'border-bottom:1px solid rgba(255,255,255,0.04);' : '';
+            html += '<tr style="'+rowBg+rowBorder+'">';
+            html += '<td style="padding:10px 14px;color:#f0f6fc;font-weight:500">'+(r.client||'-')+'</td>';
+            html += '<td style="padding:10px 14px;color:#cbd5e1">'+(r.brand||'-')+'</td>';
+            html += '<td style="padding:10px 14px;color:#94a3b8;font-size:11px">'+(r.squad||'-')+'</td>';
+            html += '<td style="padding:10px 14px;text-align:right;color:#cbd5e1;font-variant-numeric:tabular-nums">'+fmtT(r.inAmt)+'</td>';
+            html += '<td style="padding:10px 14px;text-align:right;color:'+(r.isComplete?'#a5b4fc':'#f87171')+';font-variant-numeric:tabular-nums;font-weight:'+(r.isComplete?'400':'600')+'">'+fmtT(r.sebal)+'</td>';
+            const badgeBg = r.isComplete ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)';
+            const badgeColor = r.isComplete ? '#34d399' : '#f87171';
+            const badgeBorder = r.isComplete ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)';
+            const badgeText = r.isComplete ? '✓ 완료' : '⚠ 필요';
+            html += '<td style="padding:10px 14px;text-align:center"><span style="display:inline-block;padding:3px 11px;border-radius:12px;background:'+badgeBg+';color:'+badgeColor+';border:1px solid '+badgeBorder+';font-size:11px;font-weight:600;letter-spacing:.2px">'+badgeText+'</span></td>';
+            html += '<td style="padding:10px 14px;text-align:center;color:#cbd5e1;font-size:11px">'+r.settleText+'</td>';
+            html += '<td style="padding:10px 14px;text-align:center"><span style="display:inline-block;padding:3px 10px;border-radius:10px;background:'+r.campInfo.bg+';color:'+r.campInfo.color+';font-size:11px;font-weight:500">'+r.campInfo.label+'</span></td>';
+            html += '</tr>';
+          });
+          html += '</tbody></table></div>';
+          // 합계 행
+          html += '<div style="padding:12px 14px;background:rgba(99,102,241,0.04);border-top:1px solid rgba(255,255,255,0.07);display:flex;justify-content:space-between;align-items:center;font-size:12px"><span style="color:#94a3b8">합계 ('+filteredRows.length+'건)</span><span style="color:#cbd5e1">수취 <span style="color:#a5b4fc;font-weight:600;font-variant-numeric:tabular-nums">'+fmtT(filteredRows.reduce((s,r)=>s+r.inAmt,0))+'</span>  ·  세발 <span style="color:#a5b4fc;font-weight:600;font-variant-numeric:tabular-nums">'+fmtT(filteredRows.reduce((s,r)=>s+r.sebal,0))+'</span>  ·  차액 <span style="color:'+(Math.abs(filteredRows.reduce((s,r)=>s+r.diff,0))<1?'#34d399':'#f87171')+';font-weight:600;font-variant-numeric:tabular-nums">'+fmtT(filteredRows.reduce((s,r)=>s+r.diff,0))+'</span></span></div>';
+        }
+        html += '</div>';
+        return html;
+      })()}
+    </div>
     <!-- TAB: GP 변동이력 -->
     <div class="tab-content ${currentTab==='history'?'active':''}" id="tab-history">
       ${(() => {
@@ -5235,6 +5422,8 @@ function setCampCsmFilter(sq) { campCsmFilter=sq; render(); }
 function switchCashflowTab(t) { cashflowSubTab=t; expandedCampKey=null; render(); }
 function toggleCampRow(k) { expandedCampKey=(expandedCampKey===k)?null:k; render(); }
 function setPortStatusFilter(s) { portStatusFilter=(portStatusFilter===s)?null:s; render(); }
+function setTaxStatusYM(ym) { taxStatusYearMonth = ym; render(); }
+function toggleTaxStatusUnissuedOnly() { taxStatusUnissuedOnly = !taxStatusUnissuedOnly; render(); }
 function toggleCSM(idx) {
   const el = document.getElementById('csm-list-'+idx);
   if(el) el.classList.toggle('show');
